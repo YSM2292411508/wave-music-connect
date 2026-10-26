@@ -1,0 +1,11 @@
+{
+  "name": "wave-music-aggregator",
+  "version": "0.5.17",
+  "private": true,
+  "scripts": {
+    "dev": "pnpm --filter @wavemusic/connect dev",
+    "build": "pnpm --filter @wavemusic/connect build",
+    "typecheck": "pnpm --filter @wavemusic/connect typecheck",
+    "package:win": "pnpm --filter @wavemusic/connect package:win"
+  }
+}

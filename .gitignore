@@ -1,0 +1,16 @@
+node_modules/
+dist/
+dist-electron/
+release/
+release-*/
+apps/desktop/out/
+apps/desktop/release*/
+*.exe
+.env
+.env.*
+!.env.example
+.pnpm-store/
+coverage/
+data/
+*.log
+

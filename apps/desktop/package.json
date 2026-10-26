@@ -1,0 +1,59 @@
+{
+  "name": "@wavemusic/connect",
+  "version": "0.5.17",
+  "private": true,
+  "description": "A local API client for NetEase Cloud Music and Qishui Music.",
+  "author": "WaveMusic contributors",
+  "main": "out/main/index.js",
+  "scripts": {
+    "dev": "electron-vite dev",
+    "build": "electron-vite build",
+    "typecheck": "vue-tsc --noEmit -p src/renderer/tsconfig.json && tsc --noEmit -p src/main/tsconfig.json && tsc --noEmit -p src/preload/tsconfig.json",
+    "package:win": "pnpm build && electron-builder --win nsis"
+  },
+  "dependencies": {
+    "lucide-vue-next": "0.468.0",
+    "qishui-api": "file:../../vendor/qishui-api-0.1.1.tgz",
+    "qishui-core": "file:../../vendor/qishui-core-0.2.0.tgz",
+    "qrcode": "1.5.4",
+    "vue": "3.5.13"
+  },
+  "devDependencies": {
+    "@types/node": "22.10.2",
+    "@types/qrcode": "1.5.5",
+    "@vitejs/plugin-vue": "5.2.1",
+    "electron": "36.4.0",
+    "electron-builder": "25.1.8",
+    "electron-vite": "3.0.0",
+    "typescript": "5.7.2",
+    "vite": "6.0.5",
+    "vue-tsc": "2.2.0"
+  },
+  "build": {
+    "appId": "com.wavemusic.connect",
+    "productName": "WaveMusic Connect",
+    "directories": {
+      "output": "release"
+    },
+    "files": [
+      "out/**/*",
+      "package.json"
+    ],
+    "win": {
+      "icon": "build/icon.png",
+      "target": [
+        {
+          "target": "nsis",
+          "arch": ["x64"]
+        }
+      ]
+    },
+    "nsis": {
+      "oneClick": false,
+      "allowToChangeInstallationDirectory": true,
+      "createDesktopShortcut": true,
+      "createStartMenuShortcut": true,
+      "shortcutName": "WaveMusic Connect"
+    }
+  }
+}

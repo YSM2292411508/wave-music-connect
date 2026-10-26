@@ -1,0 +1,9 @@
+packages:
+  - apps/*
+
+allowBuilds:
+  electron: true
+  esbuild: true
+
+overrides:
+  qishui-api: file:vendor/qishui-api-0.1.1.tgz
