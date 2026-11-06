@@ -172,7 +172,7 @@ function registerIpc() {
 }
 function createMainWindow() {
   const window = new BrowserWindow({ width: 1440, height: 920, minWidth: 1040, minHeight: 720, show: false,
-    title: 'WaveMusic Connect', backgroundColor: '#111416', autoHideMenuBar: true,
+    title: 'WaveMusic Connect', backgroundColor: '#0e100f', autoHideMenuBar: true,
     webPreferences: { preload: join(__dirname, '../preload/index.js'), contextIsolation: true, nodeIntegration: false,
       sandbox: true, webSecurity: true, webviewTag: false } })
   mainWindow = window
