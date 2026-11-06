@@ -2,11 +2,42 @@
 import { computed, nextTick, onMounted, onUnmounted, ref, watch } from 'vue'
 import { Search, Heart, Library, UserRound, QrCode, RefreshCw, Plus, Play, Pause, SkipBack, SkipForward,
   Volume2, ListMusic, X, LogOut, ShieldCheck, Music2, ChevronLeft, LoaderCircle, AlertCircle,
-  ScanLine, FileText, Check } from 'lucide-vue-next'
+  ScanLine, FileText, Check, Palette, Sun, Moon, Monitor } from 'lucide-vue-next'
 import appIcon from '../../../build/icon.png'
 import type { DesktopBridge, LoginAvailability, LyricLine, LyricsResult, ProviderId, ProviderStatus, QrLoginSession, TrackResult, TrackPage, Playlist, PlaylistPage, ViewName } from './types'
 
 const bridge = window.waveDesktop
+type ThemeMode = 'system' | 'light' | 'dark'
+type AccentTheme = 'mint' | 'sky' | 'rose' | 'amber'
+function storedChoice<T extends string>(key: string, allowed: readonly T[], fallback: T): T {
+  try {
+    const value = localStorage.getItem(key) as T
+    return allowed.includes(value) ? value : fallback
+  } catch { return fallback }
+}
+const themeMode = ref<ThemeMode>(storedChoice('wave-theme-mode', ['system', 'light', 'dark'] as const, 'light'))
+const accentTheme = ref<AccentTheme>(storedChoice('wave-accent-theme', ['mint', 'sky', 'rose', 'amber'] as const, 'mint'))
+const accentThemes: AccentTheme[] = ['mint', 'sky', 'rose', 'amber']
+const accentNames: Record<AccentTheme, string> = { mint: '薄荷', sky: '天空', rose: '玫瑰', amber: '暖金' }
+const themeMenuOpen = ref(false)
+const themeControl = ref<HTMLElement | null>(null)
+const systemTheme = window.matchMedia('(prefers-color-scheme: dark)')
+const themeLabel = computed(() => themeMode.value === 'system' ? '跟随系统' : themeMode.value === 'light' ? '浅色' : '深色')
+function applyTheme() {
+  const resolved = themeMode.value === 'system' ? systemTheme.matches ? 'dark' : 'light' : themeMode.value
+  document.documentElement.dataset.theme = resolved
+  document.documentElement.dataset.accent = accentTheme.value
+  document.documentElement.style.colorScheme = resolved
+  try {
+    localStorage.setItem('wave-theme-mode', themeMode.value)
+    localStorage.setItem('wave-accent-theme', accentTheme.value)
+  } catch {}
+}
+function dismissThemeMenu(event: PointerEvent) {
+  if (themeMenuOpen.value && !themeControl.value?.contains(event.target as Node)) themeMenuOpen.value = false
+}
+applyTheme()
+watch([themeMode, accentTheme], applyTheme)
 const appVersion = ref('')
 const statuses = ref<ProviderStatus[]>([
   { id: 'netease', name: '网易云音乐', shortName: '网易云', color: '#e5484d', connected: false, sessionRevision: 0, apiReady: true },
@@ -425,7 +456,7 @@ function audioError() { if (!sourceUrl.value) return; playing.value = false; pla
 function seek(event: Event) { if (audio.value && nowDuration.value) audio.value.currentTime = Number((event.target as HTMLInputElement).value) }
 function setVolume(event: Event) { volume.value = Number((event.target as HTMLInputElement).value); if (audio.value) audio.value.volume = volume.value / 100 }
 function keydown(event: KeyboardEvent) {
-  if (event.key === 'Escape') { closeLogin(); closeModal(); closeLyrics(); queueOpen.value = false }
+  if (event.key === 'Escape') { closeLogin(); closeModal(); closeLyrics(); queueOpen.value = false; themeMenuOpen.value = false }
   if (event.code === 'Space' && !(event.target as HTMLElement)?.closest('input,button,textarea,select,[contenteditable]') && !loginProvider.value && !modal.value) { event.preventDefault(); void togglePlayback() }
 }
 let clockTimer: ReturnType<typeof setInterval> | undefined
@@ -459,6 +490,8 @@ watch(() => statuses.value.map(item => ({ id: item.id, connected: item.connected
 })
 onMounted(async () => {
   window.addEventListener('keydown', keydown)
+  window.addEventListener('pointerdown', dismissThemeMenu)
+  systemTheme.addEventListener('change', applyTheme)
   clockTimer = setInterval(() => { clock.value = Date.now() }, 1000)
   if (!bridge) return
   unsubscribers.push(bridge.providers.onStatusChanged(value => { statuses.value = value }))
@@ -478,7 +511,7 @@ onMounted(async () => {
   try { setLocalFavoriteTracks(await bridge.music.localFavorites()) } catch (error) { notify(reason(error)) }
   await nextTick()
 })
-onUnmounted(() => { window.removeEventListener('keydown', keydown); for (const unsubscribe of unsubscribers) unsubscribe(); clearInterval(clockTimer); clearTimeout(toastTimer); closeLogin(); stopPlayback(true) })
+onUnmounted(() => { window.removeEventListener('keydown', keydown); window.removeEventListener('pointerdown', dismissThemeMenu); systemTheme.removeEventListener('change', applyTheme); for (const unsubscribe of unsubscribers) unsubscribe(); clearInterval(clockTimer); clearTimeout(toastTimer); closeLogin(); stopPlayback(true) })
 </script>
 
 <template>
@@ -500,7 +533,27 @@ onUnmounted(() => { window.removeEventListener('keydown', keydown); for (const u
     </aside>
 
     <main class="workspace">
-      <header class="topbar"><span><i :class="{ online: connectedCount > 0 }" />{{ connectedCount ? `${connectedCount} 个账号已连接` : '访客模式' }}</span><button class="icon-button" :disabled="refreshing || !bridge" title="刷新账号状态" aria-label="刷新账号状态" @click="refreshAccounts"><RefreshCw :size="17" :class="{ spin: refreshing }" /></button></header>
+      <header class="topbar">
+        <span><i :class="{ online: connectedCount > 0 }" />{{ connectedCount ? `${connectedCount} 个账号已连接` : '访客模式' }}</span>
+        <div class="topbar-actions">
+          <div ref="themeControl" class="theme-control">
+            <button class="icon-button" :class="{ active: themeMenuOpen }" title="外观设置" aria-label="外观设置" :aria-expanded="themeMenuOpen" @click="themeMenuOpen = !themeMenuOpen"><Palette :size="17" /></button>
+            <section v-if="themeMenuOpen" class="theme-panel" role="dialog" aria-label="外观设置">
+              <div class="theme-panel-heading"><strong>外观</strong><small>{{ themeLabel }}</small></div>
+              <div class="theme-segment" role="group" aria-label="显示模式">
+                <button :class="{ active: themeMode === 'system' }" title="跟随系统" aria-label="跟随系统" @click="themeMode = 'system'"><Monitor :size="16" /><span>自动</span></button>
+                <button :class="{ active: themeMode === 'light' }" title="浅色模式" aria-label="浅色模式" @click="themeMode = 'light'"><Sun :size="16" /><span>浅色</span></button>
+                <button :class="{ active: themeMode === 'dark' }" title="深色模式" aria-label="深色模式" @click="themeMode = 'dark'"><Moon :size="16" /><span>深色</span></button>
+              </div>
+              <span class="theme-panel-label">强调色</span>
+              <div class="accent-swatches" role="group" aria-label="强调色">
+                <button v-for="accent in accentThemes" :key="accent" :class="['accent-swatch', accent, { active: accentTheme === accent }]" :title="accentNames[accent]" :aria-label="accentNames[accent]" @click="accentTheme = accent"><Check v-if="accentTheme === accent" :size="13" /></button>
+              </div>
+            </section>
+          </div>
+          <button class="icon-button" :disabled="refreshing || !bridge" title="刷新账号状态" aria-label="刷新账号状态" @click="refreshAccounts"><RefreshCw :size="17" :class="{ spin: refreshing }" /></button>
+        </div>
+      </header>
       <section class="page-header"><h1>{{ selectedPlaylist?.name || titles[activeView] }}</h1><span>{{ selectedPlaylist ? `${provider(selectedPlaylist.provider).name} · 平台歌单` : subtitles[activeView] }}</span></section>
       <div class="page-content">
         <div v-if="!bridge" class="notice"><AlertCircle :size="20" /><div><strong>当前是浏览器预览</strong><p>扫码、平台接口和播放需要桌面版 EXE。本页不会展示模拟歌曲或虚假登录结果。</p></div></div>
