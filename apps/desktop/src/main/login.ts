@@ -83,8 +83,9 @@ export class QrLogins {
       const imageDataUrl = suppliedImage || await QRCode.toDataURL(ticket.content, { width: 260, margin: 2, errorCorrectionLevel: 'M' })
       if (!this.current(attempt)) throw new Error('登录请求已取消')
       clearTimeout(attempt.deadline)
+      const appName = provider.id === 'qishui' ? '汽水音乐' : provider.id === 'qqmusic' ? 'QQ 音乐' : '网易云音乐'
       attempt.view = { id, provider: provider.id, imageDataUrl, state: 'waiting',
-        message: provider.id === 'qishui' ? '请使用汽水音乐 App 扫码' : '请使用网易云音乐 App 扫码',
+        message: `请使用${appName} App 扫码`,
         expiresAt: ticket.expiresAt, sequence: 1, checkCount: 0 }
       attempt.deadline = setTimeout(() => this.fail(attempt, 'expired', '二维码已过期，请刷新', false), Math.max(0, ticket.expiresAt - Date.now()))
       attempt.view.nextCheckAt = Date.now() + 1600

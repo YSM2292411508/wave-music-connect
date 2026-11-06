@@ -8,6 +8,7 @@ import { MediaStreams } from './media.js'
 import { LocalFavorites } from './local-favorites.js'
 import { message, object } from './api/transport.js'
 import { initializeLogger, logEvent, logsDirectory } from './logger.js'
+import { closeQqMusicService } from './api/qqmusic-service.js'
 
 protocol.registerSchemesAsPrivileged([{ scheme: 'wave-media', privileges: { standard: true, secure: true, supportFetchAPI: true, corsEnabled: true, stream: true } }])
 let mainWindow: BrowserWindow | null = null
@@ -31,15 +32,15 @@ function authorized(event: IpcMainInvokeEvent) {
     || !trustedUrl(event.senderFrame.url)) throw new Error('拒绝不受信任的调用')
 }
 function providerId(value: unknown): ProviderId {
-  if (value !== 'netease' && value !== 'qishui') throw new Error('未知音乐平台')
+  if (value !== 'netease' && value !== 'qishui' && value !== 'qqmusic') throw new Error('未知音乐平台')
   return value
 }
 function providerIds(value: unknown): ProviderId[] {
-  if (!Array.isArray(value) || !value.length || value.length > 2) throw new Error('请选择音乐平台')
+  if (!Array.isArray(value) || !value.length || value.length > 3) throw new Error('请选择音乐平台')
   return [...new Set(value.map(providerId))]
 }
 function identifier(value: unknown) {
-  if (typeof value !== 'string' || !/^[a-zA-Z0-9_-]{1,160}$/.test(value)) throw new Error('无效的歌曲或歌单 ID')
+  if (typeof value !== 'string' || !/^[a-zA-Z0-9_-]{1,240}$/.test(value)) throw new Error('无效的歌曲或歌单 ID')
   return value
 }
 function loginAttemptId(value: unknown) {
@@ -155,6 +156,10 @@ function registerIpc() {
     const track = trackRef(input?.track), playlist = identifier(input?.playlistId)
     return sameAccount(track.provider, () => providers.all[track.provider].addToPlaylist(track.trackId, playlist))
   })
+  handle('music:lyrics', input => {
+    const track = trackRef(input)
+    return sameAccount(track.provider, () => providers.all[track.provider].lyrics(track.trackId))
+  })
   handle('music:playback', async input => {
     const track = trackRef(input)
     const source = await sameAccount(track.provider, () => providers.all[track.provider].playback(track.trackId))
@@ -193,7 +198,8 @@ app.whenReady().then(async () => {
   media = new MediaStreams()
   media.register()
   logins = new QrLogins(view => emit('login:changed', view), () => {
-    providers.clearError('netease'); providers.clearError('qishui'); publish()
+    for (const id of ['netease', 'qishui', 'qqmusic'] as const) providers.clearError(id)
+    publish()
   }, state => emit('login:availability-changed', state))
   registerIpc()
   createMainWindow()
@@ -203,5 +209,6 @@ app.whenReady().then(async () => {
 app.on('before-quit', () => {
   logEvent({ provider: 'app', stage: 'lifecycle.stop', outcome: 'success' })
   logins?.close(); media?.revoke()
+  void closeQqMusicService()
 })
 app.on('window-all-closed', () => { if (process.platform !== 'darwin') app.quit() })

@@ -1,4 +1,4 @@
-export type ProviderId = 'netease' | 'qishui'
+export type ProviderId = 'netease' | 'qishui' | 'qqmusic'
 export type LoginState = 'waiting' | 'scanned' | 'validating' | 'confirmed' | 'expired' | 'cancelled' | 'error'
 export type ProviderStatus = {
   id: ProviderId
@@ -59,6 +59,8 @@ export type Playlist = {
   writable: boolean
 }
 export type PlaylistPage = { provider: ProviderId; playlists: Playlist[]; cursor?: string; error?: string }
+export type LyricLine = { timeMs: number; endTimeMs?: number; text: string; translation?: string }
+export type LyricsResult = TrackRef & { lines: LyricLine[]; offsetMs: number; plainText?: string }
 export type PlaybackSource = { url: string; expiresAt: number }
 export type DesktopBridge = {
   app: {
@@ -88,6 +90,7 @@ export type DesktopBridge = {
     playlistTracks(provider: ProviderId, playlistId: string, cursor?: string): Promise<TrackPage>
     createPlaylist(provider: ProviderId, name: string, privatePlaylist: boolean): Promise<Playlist>
     addToPlaylist(track: TrackRef, playlistId: string): Promise<void>
+    lyrics(track: TrackRef): Promise<LyricsResult>
     playback(track: TrackRef): Promise<PlaybackSource>
     releasePlayback(url: string): Promise<void>
   }

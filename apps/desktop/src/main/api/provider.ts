@@ -1,7 +1,7 @@
 import { session, type Session } from 'electron'
 import { AsyncLocalStorage } from 'node:async_hooks'
 import { setTimeout as delay } from 'node:timers/promises'
-import type { Playlist, PlaylistPage, ProviderId, ProviderStatus, TrackPage } from '../../shared/contracts.js'
+import type { LyricsResult, Playlist, PlaylistPage, ProviderId, ProviderStatus, TrackPage } from '../../shared/contracts.js'
 import { RequestFailure } from './transport.js'
 
 export type LoginTicket = { content: string; token: string; expiresAt: number; imageDataUrl?: string }
@@ -141,5 +141,6 @@ export abstract class MusicProvider {
   abstract playlistTracks(playlistId: string, cursor?: string): Promise<TrackPage>
   abstract createPlaylist(name: string, privatePlaylist: boolean): Promise<Playlist>
   abstract addToPlaylist(trackId: string, playlistId: string): Promise<void>
+  abstract lyrics(trackId: string): Promise<LyricsResult>
   abstract playback(trackId: string): Promise<AuthorizedMedia>
 }

@@ -4,16 +4,17 @@ import { Search, Heart, Library, UserRound, QrCode, RefreshCw, Plus, Play, Pause
   Volume2, ListMusic, X, LogOut, ShieldCheck, Music2, ChevronLeft, LoaderCircle, AlertCircle,
   ScanLine, FileText } from 'lucide-vue-next'
 import appIcon from '../../../build/icon.png'
-import type { DesktopBridge, LoginAvailability, ProviderId, ProviderStatus, QrLoginSession, TrackResult, TrackPage, Playlist, PlaylistPage, ViewName } from './types'
+import type { DesktopBridge, LoginAvailability, LyricLine, LyricsResult, ProviderId, ProviderStatus, QrLoginSession, TrackResult, TrackPage, Playlist, PlaylistPage, ViewName } from './types'
 
 const bridge = window.waveDesktop
 const appVersion = ref('')
 const statuses = ref<ProviderStatus[]>([
   { id: 'netease', name: '网易云音乐', shortName: '网易云', color: '#e5484d', connected: false, sessionRevision: 0, apiReady: true },
   { id: 'qishui', name: '汽水音乐', shortName: '汽水', color: '#20c997', connected: false, sessionRevision: 0, apiReady: true },
+  { id: 'qqmusic', name: 'QQ音乐', shortName: 'QQ音乐', color: '#31c27c', connected: false, sessionRevision: 0, apiReady: true },
 ])
 const activeView = ref<ViewName>('search')
-const selected = ref<ProviderId[]>(['netease', 'qishui'])
+const selected = ref<ProviderId[]>(['netease', 'qishui', 'qqmusic'])
 const query = ref('')
 const submitted = ref('')
 const trackPages = ref<TrackPage[]>([])
@@ -29,10 +30,13 @@ const pending = ref(new Set<string>())
 const brokenImages = ref(new Set<string>())
 const lastActionError = ref('')
 const titles: Record<ViewName, string> = { search: '发现你的下一首喜欢', localFavorites: '本地喜欢', playlists: '我的歌单', accounts: '账号与访客模式' }
-const subtitles: Record<ViewName, string> = { search: '同时搜索网易云与汽水，留住每一次心动。',
-  localFavorites: '只保存在这台电脑，可混合保存网易云与汽水歌曲。', playlists: '查看、创建并管理各平台歌单。歌曲只能添加到同一平台。',
-  accounts: '网易云与汽水均使用对应 App 扫码登录；访客搜索和本地喜欢无需账号。' }
+const subtitles: Record<ViewName, string> = { search: '同时搜索网易云、汽水与 QQ 音乐，留住每一次心动。',
+  localFavorites: '只保存在这台电脑，可混合保存三个平台的歌曲。', playlists: '查看、创建并管理各平台歌单。歌曲只能添加到同一平台。',
+  accounts: '三个平台均使用对应 App 扫码登录；访客搜索和本地喜欢无需账号。' }
 const provider = (id: ProviderId) => statuses.value.find(item => item.id === id)!
+const guestMode = (id: ProviderId) => id === 'qishui' || id === 'qqmusic'
+const scanLabel = (id: ProviderId) => id === 'qishui' ? '汽水扫码' : id === 'qqmusic' ? 'QQ音乐扫码' : '网易云扫码'
+const scanApp = (id: ProviderId) => id === 'qishui' ? '汽水音乐' : id === 'qqmusic' ? 'QQ 音乐' : '网易云音乐'
 const keyOf = (track: TrackResult) => `${track.provider}:${track.trackId}`
 const refOf = (track: TrackResult) => ({ provider: track.provider, trackId: track.trackId })
 // contextBridge copies arguments before preload runs, so build plain data here.
@@ -246,6 +250,9 @@ const modalError = ref('')
 const createProvider = ref<ProviderId>('netease')
 const playlistName = ref('')
 const privatePlaylist = ref(false)
+watch(createProvider, id => {
+  if (id === 'qqmusic') privatePlaylist.value = false
+})
 let modalVersion = 0
 const writablePlaylists = computed(() => modalPlaylists.value.filter(item => item.writable))
 function resetModal() {
@@ -332,6 +339,54 @@ const sourceUrl = ref('')
 const sourceExpiry = ref(0)
 const nowDuration = computed(() => mediaDuration.value || (currentTrack.value?.durationMs || 0) / 1000)
 const queueIndex = computed(() => currentTrack.value ? queue.value.findIndex(track => keyOf(track) === keyOf(currentTrack.value!)) : -1)
+const lyricsOpen = ref(false)
+const lyricsLoading = ref(false)
+const lyricsData = ref<LyricsResult | null>(null)
+const lyricsError = ref('')
+const lyricsScroller = ref<HTMLElement | null>(null)
+let lyricsRequestVersion = 0
+const activeLyricIndex = computed(() => {
+  const lines = lyricsData.value?.lines || []
+  const at = currentTime.value * 1000 + (lyricsData.value?.offsetMs || 0)
+  let low = 0; let high = lines.length - 1; let result = -1
+  while (low <= high) {
+    const middle = Math.floor((low + high) / 2)
+    if (lines[middle]!.timeMs <= at) { result = middle; low = middle + 1 }
+    else high = middle - 1
+  }
+  return result
+})
+async function loadLyrics() {
+  const track = currentTrack.value
+  if (!track) return
+  const key = keyOf(track)
+  const version = ++lyricsRequestVersion
+  lyricsLoading.value = true; lyricsError.value = ''; lyricsData.value = null
+  try {
+    const result = await api().music.lyrics(refOf(track))
+    if (version === lyricsRequestVersion && currentTrack.value && keyOf(currentTrack.value) === key) lyricsData.value = result
+  } catch (error) {
+    if (version === lyricsRequestVersion) lyricsError.value = reason(error)
+  } finally {
+    if (version === lyricsRequestVersion) lyricsLoading.value = false
+  }
+}
+function openLyrics() {
+  if (!currentTrack.value) return
+  queueOpen.value = false
+  lyricsOpen.value = true
+  void loadLyrics()
+}
+function closeLyrics() {
+  lyricsRequestVersion++
+  lyricsOpen.value = false; lyricsLoading.value = false; lyricsError.value = ''
+}
+function seekLyric(line: LyricLine) {
+  if (!audio.value) return
+  const target = Math.max(0, (line.timeMs - (lyricsData.value?.offsetMs || 0)) / 1000)
+  audio.value.currentTime = nowDuration.value ? Math.min(target, nowDuration.value) : target
+  currentTime.value = audio.value.currentTime
+}
 function releaseSource() { const url = sourceUrl.value; sourceUrl.value = ''; sourceExpiry.value = 0; if (url) void bridge?.music.releasePlayback(url).catch(() => {}) }
 function stopPlayback(clear = false) {
   playbackVersion++
@@ -370,11 +425,21 @@ function audioError() { if (!sourceUrl.value) return; playing.value = false; pla
 function seek(event: Event) { if (audio.value && nowDuration.value) audio.value.currentTime = Number((event.target as HTMLInputElement).value) }
 function setVolume(event: Event) { volume.value = Number((event.target as HTMLInputElement).value); if (audio.value) audio.value.volume = volume.value / 100 }
 function keydown(event: KeyboardEvent) {
-  if (event.key === 'Escape') { closeLogin(); closeModal(); queueOpen.value = false }
+  if (event.key === 'Escape') { closeLogin(); closeModal(); closeLyrics(); queueOpen.value = false }
   if (event.code === 'Space' && !(event.target as HTMLElement)?.closest('input,button,textarea,select,[contenteditable]') && !loginProvider.value && !modal.value) { event.preventDefault(); void togglePlayback() }
 }
 let clockTimer: ReturnType<typeof setInterval> | undefined
 const unsubscribers: (() => void)[] = []
+watch(() => currentTrack.value ? keyOf(currentTrack.value) : '', value => {
+  if (!value) closeLyrics()
+  else if (lyricsOpen.value) void loadLyrics()
+})
+watch(activeLyricIndex, async index => {
+  if (!lyricsOpen.value || index < 0) return
+  await nextTick()
+  lyricsScroller.value?.querySelector<HTMLElement>(`[data-lyric-index="${index}"]`)
+    ?.scrollIntoView({ block: 'center', behavior: 'smooth' })
+})
 watch(() => statuses.value.map(item => ({ id: item.id, connected: item.connected, revision: item.sessionRevision })), (current, previous) => {
   const changed = new Set(current.filter(item => {
     const old = previous?.find(value => value.id === item.id)
@@ -430,7 +495,7 @@ onUnmounted(() => { window.removeEventListener('keydown', keydown); for (const u
         <span class="glyph" :class="item.id">{{ item.shortName.slice(0, 1) }}</span><span><strong>{{ item.name }}</strong><small>{{ item.connected ? item.accountName : '点击扫码登录' }}</small></span><i :class="{ online: item.connected }" />
       </button>
       <div class="sidebar-note"><ShieldCheck :size="17" /><p>本地喜欢留在本机<br /><span>播放权限由平台决定</span></p></div>
-      <button class="accounts-nav" :class="{ active: activeView === 'accounts' }" @click="navigate('accounts')"><UserRound :size="19" />账号管理<span>{{ connectedCount }}/2</span></button>
+      <button class="accounts-nav" :class="{ active: activeView === 'accounts' }" @click="navigate('accounts')"><UserRound :size="19" />账号管理<span>{{ connectedCount }}/{{ statuses.length }}</span></button>
       <small class="version">WaveMusic Connect {{ appVersion || 'desktop' }}</small>
     </aside>
 
@@ -443,20 +508,20 @@ onUnmounted(() => { window.removeEventListener('keydown', keydown); for (const u
         <template v-if="activeView === 'accounts'">
           <div class="account-grid">
             <article v-for="item in statuses" :key="item.id" class="account-card">
-              <div class="account-top"><span class="glyph large" :class="item.id">{{ item.shortName.slice(0, 1) }}</span><span class="status" :class="{ connected: item.connected || item.id === 'qishui' }">{{ item.connected ? '已登录' : item.id === 'qishui' ? '访客模式' : '未登录' }}</span></div>
-              <h2>{{ item.name }}</h2><div v-if="item.connected" class="account-person"><img v-if="imageAvailable(item.avatarUrl)" :src="item.avatarUrl" alt="账号头像" @error="markImageBroken(item.avatarUrl)" /><span v-else class="account-avatar-placeholder"><UserRound :size="16" /></span><strong>{{ item.accountName }}</strong></div><p v-else>{{ item.id === 'qishui' ? '无需登录即可搜索和播放公开内容；使用汽水音乐 App 扫码可连接账号功能。' : '使用网易云音乐 App 扫码连接账号。' }}</p>
+              <div class="account-top"><span class="glyph large" :class="item.id">{{ item.shortName.slice(0, 1) }}</span><span class="status" :class="{ connected: item.connected || guestMode(item.id) }">{{ item.connected ? '已登录' : guestMode(item.id) ? '访客模式' : '未登录' }}</span></div>
+              <h2>{{ item.name }}</h2><div v-if="item.connected" class="account-person"><img v-if="imageAvailable(item.avatarUrl)" :src="item.avatarUrl" alt="账号头像" @error="markImageBroken(item.avatarUrl)" /><span v-else class="account-avatar-placeholder"><UserRound :size="16" /></span><strong>{{ item.accountName }}</strong></div><p v-else>{{ guestMode(item.id) ? `无需登录即可搜索公开内容；使用${scanApp(item.id)} App 扫码可连接账号、歌单和账号播放权限。` : '使用网易云音乐 App 扫码连接账号。' }}</p>
               <p class="api-message">{{ item.apiMessage || '接口请求在本机完成，登录凭据不发送给自建服务器。' }}</p>
-              <div class="account-actions"><button v-if="!item.connected" class="primary" :disabled="!bridge" @click="openLogin(item.id)"><ScanLine :size="17" />{{ item.id === 'qishui' ? '汽水扫码' : '网易云扫码' }}</button><button v-else class="secondary" @click="logout(item.id)"><LogOut :size="16" />退出账号</button></div>
+              <div class="account-actions"><button v-if="!item.connected" class="primary" :disabled="!bridge" @click="openLogin(item.id)"><ScanLine :size="17" />{{ scanLabel(item.id) }}</button><button v-else class="secondary" @click="logout(item.id)"><LogOut :size="16" />退出账号</button></div>
             </article>
           </div>
-          <div class="info-panel"><ShieldCheck :size="24" /><div><h3>本地喜欢留在本机</h3><p>红心只写入本软件的本地喜欢，可混合收录网易云与汽水歌曲，不会调用平台收藏接口。</p><p>汽水访客请求参考开源 qishui-api，使用公开 Web、PC 与 H5 接口。播放仍以平台实际返回的普通音频地址为准。</p></div><button class="secondary log-button" :disabled="!bridge" @click="openLogs"><FileText :size="16" />打开日志目录</button></div>
+          <div class="info-panel"><ShieldCheck :size="24" /><div><h3>本地喜欢留在本机</h3><p>红心只写入本软件的本地喜欢，可混合收录网易云、汽水与 QQ 音乐歌曲，不会调用平台收藏接口。</p><p>汽水与 QQ 音乐访客请求使用对应的开源 API 适配。播放仍以平台实际返回的普通音频地址和当前账号权限为准。</p></div><button class="secondary log-button" :disabled="!bridge" @click="openLogs"><FileText :size="16" />打开日志目录</button></div>
         </template>
 
         <template v-else>
           <form v-if="activeView === 'search'" class="search-form" @submit.prevent="search"><Search :size="22" /><input v-model="query" maxlength="200" placeholder="搜索歌曲、歌手、专辑…" aria-label="搜索关键词" /><button class="primary" :disabled="!query.trim() || !selected.length || !bridge">搜索音乐</button></form>
            <div class="content-toolbar"><div class="platform-filters"><button v-for="item in statuses" :key="item.id" :class="['filter', item.id, { selected: selected.includes(item.id) }]" @click="toggleProvider(item.id)"><i />{{ item.name }}<span v-if="selected.includes(item.id)">✓</span></button></div><button v-if="activeView === 'playlists' && !selectedPlaylist" class="secondary" :disabled="!bridge" @click="openCreate()"><Plus :size="16" />新建歌单</button><button v-else-if="activeView === 'localFavorites' || selectedPlaylist" class="icon-button" :disabled="busy || !bridge" title="刷新列表" aria-label="刷新列表" @click="load()"><RefreshCw :size="16" /></button></div>
           <button v-if="selectedPlaylist" class="back-link" @click="navigate('playlists')"><ChevronLeft :size="16" />返回我的歌单</button>
-          <div v-for="error in errors" :key="error.provider" class="platform-error"><AlertCircle :size="17" /><div><strong>{{ provider(error.provider).name }}</strong><span>{{ error.error }}</span></div><button v-if="error.provider === 'netease' && !provider(error.provider).connected" @click="openLogin(error.provider)">登录</button><button v-else :disabled="busy" @click="load(false, error.provider)">重试</button></div>
+          <div v-for="error in errors" :key="error.provider" class="platform-error"><AlertCircle :size="17" /><div><strong>{{ provider(error.provider).name }}</strong><span>{{ error.error }}</span></div><button v-if="!provider(error.provider).connected" @click="openLogin(error.provider)">登录</button><button v-else :disabled="busy" @click="load(false, error.provider)">重试</button></div>
           <div v-if="lastActionError" class="platform-error"><AlertCircle :size="17" /><span>{{ lastActionError }}</span><button :disabled="busy" @click="load()">重新加载</button></div>
 
           <template v-if="activeView === 'playlists' && !selectedPlaylist">
@@ -467,7 +532,7 @@ onUnmounted(() => { window.removeEventListener('keydown', keydown); for (const u
              <div v-if="tracks.length" class="track-list"><div class="list-caption"><span>{{ selectedPlaylist ? '歌单歌曲' : activeView === 'localFavorites' ? '跨平台本地喜欢' : `“${submitted}” 的搜索结果` }}</span><small>已加载 {{ tracks.length }} 首 · 点击播放时确认权限</small></div>
                <table><thead><tr><th class="number">#</th><th>音乐标题</th><th class="artist">歌手 / 专辑</th><th class="source">平台</th><th class="length">时长</th><th class="actions">操作</th></tr></thead><tbody><tr v-for="(track, index) in tracks" :key="keyOf(track)" :class="{ current: currentTrack && keyOf(currentTrack) === keyOf(track) }" @dblclick="play(track)"><td class="number"><button class="row-play" :disabled="playbackBusy && currentTrack?.trackId === track.trackId" :title="`播放 ${track.title}`" :aria-label="`播放 ${track.title}`" @click="play(track)"><span>{{ String(index + 1).padStart(2, '0') }}</span><Play :size="15" fill="currentColor" /></button></td><td><div class="track-title"><img v-if="imageAvailable(track.coverUrl)" :src="track.coverUrl" alt="" loading="lazy" @error="markImageBroken(track.coverUrl)" /><span v-else class="cover-placeholder"><Music2 :size="20" /></span><div><strong>{{ track.title }}</strong><small v-if="track.playback === 'restricted'">{{ track.restrictionReason }}</small><small v-else-if="track.localFavorite"><b v-if="track.vipRequired" class="vip">VIP</b>{{ trackStatus(track) }}</small><small v-else-if="track.vipRequired"><b class="vip">VIP</b></small></div></div></td><td class="artist"><strong>{{ track.artist }}</strong><small>{{ track.album || '未知专辑' }}</small></td><td class="source"><span :class="['provider-tag', track.provider]">{{ provider(track.provider).shortName }}</span></td><td class="length">{{ duration(track.durationMs) }}</td><td class="actions"><button :class="['icon-button', 'subtle', { liked: track.localFavorite }]" :disabled="pending.has(`local-like:${keyOf(track)}`)" :title="track.localFavorite ? '从本地喜欢移除' : '加入本地喜欢'" :aria-label="track.localFavorite ? '从本地喜欢移除' : '加入本地喜欢'" @click="toggleLocalFavorite(track)"><Heart :size="17" :fill="track.localFavorite ? 'currentColor' : 'none'" /></button><button class="icon-button subtle" title="添加到歌单" aria-label="添加到歌单" @click="openAdd(track)"><Plus :size="17" /></button></td></tr></tbody></table>
             </div>
-            <div v-else-if="!busy" class="empty-state"><component :is="activeView === 'localFavorites' ? Heart : Search" :size="48" /><h2>{{ !selected.length ? '请选择一个音乐平台' : activeView === 'search' && !submitted ? '你想听什么？' : activeView === 'localFavorites' ? '还没有本地喜欢' : '这里暂时没有歌曲' }}</h2><p>{{ activeView === 'search' && !submitted ? '输入关键词，在两个音乐世界里一起发现；汽水可直接使用访客模式。' : activeView === 'localFavorites' ? '喜欢的歌曲会保存在这台电脑。' : '可以调整关键词、刷新列表，平台歌单需要连接账号。' }}</p><div v-if="activeView !== 'search' && activeView !== 'localFavorites' && !connectedCount" class="empty-actions"><button v-for="item in statuses" :key="item.id" class="secondary" :disabled="!bridge" @click="openLogin(item.id)">{{ item.id === 'qishui' ? '汽水音乐 App 扫码' : '网易云音乐 App 扫码' }}</button></div></div>
+            <div v-else-if="!busy" class="empty-state"><component :is="activeView === 'localFavorites' ? Heart : Search" :size="48" /><h2>{{ !selected.length ? '请选择一个音乐平台' : activeView === 'search' && !submitted ? '你想听什么？' : activeView === 'localFavorites' ? '还没有本地喜欢' : '这里暂时没有歌曲' }}</h2><p>{{ activeView === 'search' && !submitted ? '输入关键词，在三个音乐平台里一起发现；汽水和 QQ 音乐可直接使用访客搜索。' : activeView === 'localFavorites' ? '喜欢的歌曲会保存在这台电脑。' : '可以调整关键词、刷新列表，平台歌单需要连接账号。' }}</p><div v-if="activeView !== 'search' && activeView !== 'localFavorites' && !connectedCount" class="empty-actions"><button v-for="item in statuses" :key="item.id" class="secondary" :disabled="!bridge" @click="openLogin(item.id)">{{ scanApp(item.id) }} App 扫码</button></div></div>
           </template>
           <div v-if="busy" class="loading"><LoaderCircle :size="20" class="spin" />{{ activeView === 'localFavorites' ? '正在读取本地喜欢…' : '正在向平台请求…' }}</div>
           <button v-else-if="canLoadMore" class="load-more secondary" @click="load(true)">加载更多</button>
@@ -475,7 +540,33 @@ onUnmounted(() => { window.removeEventListener('keydown', keydown); for (const u
       </div>
     </main>
 
-    <footer class="player-dock"><div class="now-playing"><img v-if="imageAvailable(currentTrack?.coverUrl)" :src="currentTrack?.coverUrl" alt="" @error="markImageBroken(currentTrack?.coverUrl)" /><span v-else class="dock-cover"><Music2 :size="25" /></span><div><strong>{{ currentTrack?.title || '音乐，在这里汇合' }}</strong><small :title="playbackError">{{ playbackError || (currentTrack ? `${currentTrack.artist} · ${provider(currentTrack.provider).shortName}` : '选择一首歌曲开始播放') }}</small></div><button v-if="currentTrack" class="icon-button subtle" :class="{ liked: currentTrack.localFavorite }" :disabled="pending.has(`local-like:${keyOf(currentTrack)}`)" :title="currentTrack.localFavorite ? '从本地喜欢移除' : '加入本地喜欢'" :aria-label="currentTrack.localFavorite ? '从本地喜欢移除' : '加入本地喜欢'" @click="toggleLocalFavorite(currentTrack)"><Heart :size="17" :fill="currentTrack.localFavorite ? 'currentColor' : 'none'" /></button></div><div class="player-center"><div class="player-buttons"><button class="icon-button subtle" :disabled="queueIndex <= 0" title="上一首" aria-label="上一首" @click="skip(-1)"><SkipBack :size="18" /></button><button class="main-play" :disabled="!currentTrack || playbackBusy" :title="playing ? '暂停' : '播放'" :aria-label="playing ? '暂停' : '播放'" @click="togglePlayback"><LoaderCircle v-if="playbackBusy" :size="22" class="spin" /><Pause v-else-if="playing" :size="21" fill="currentColor" /><Play v-else :size="21" fill="currentColor" /></button><button class="icon-button subtle" :disabled="queueIndex < 0 || queueIndex + 1 >= queue.length" title="下一首" aria-label="下一首" @click="skip(1)"><SkipForward :size="18" /></button></div><div class="progress"><small>{{ duration(currentTime * 1000) }}</small><input type="range" min="0" :max="nowDuration || 1" step="0.1" :value="currentTime" :disabled="!sourceUrl || !nowDuration" aria-label="播放进度" @change="seek" /><small>{{ duration(nowDuration * 1000) }}</small></div></div><div class="player-right"><Volume2 :size="18" /><input type="range" min="0" max="100" :value="volume" aria-label="音量" @input="setVolume" /><button class="icon-button subtle" title="播放队列" aria-label="播放队列" @click="queueOpen = !queueOpen"><ListMusic :size="21" /></button></div></footer>
+    <section v-if="lyricsOpen && currentTrack" class="lyrics-view" aria-label="当前歌曲歌词">
+      <button class="lyrics-close icon-button" title="关闭歌词" aria-label="关闭歌词" @click="closeLyrics"><X :size="21" /></button>
+      <div class="lyrics-track">
+        <img v-if="imageAvailable(currentTrack.coverUrl)" class="lyrics-cover" :src="currentTrack.coverUrl" :alt="`${currentTrack.title} 封面`" @error="markImageBroken(currentTrack.coverUrl)" />
+        <span v-else class="lyrics-cover lyrics-cover-placeholder"><Music2 :size="64" /></span>
+        <div class="lyrics-track-meta">
+          <span :class="['provider-tag', currentTrack.provider]">{{ provider(currentTrack.provider).shortName }}</span>
+          <h1>{{ currentTrack.title }}</h1>
+          <p>{{ currentTrack.artist }}</p>
+          <small>{{ currentTrack.album || '未知专辑' }}</small>
+        </div>
+      </div>
+      <div class="lyrics-pane">
+        <header><strong>歌词</strong><small v-if="lyricsData?.lines.length">点击歌词可跳转播放进度</small></header>
+        <div v-if="lyricsLoading" class="lyrics-state"><LoaderCircle :size="22" class="spin" />正在获取歌词…</div>
+        <div v-else-if="lyricsError" class="lyrics-state lyrics-error"><AlertCircle :size="22" /><span>{{ lyricsError }}</span><button class="secondary" @click="loadLyrics">重试</button></div>
+        <div v-else-if="lyricsData?.lines.length" ref="lyricsScroller" class="lyrics-lines">
+          <button v-for="(line, index) in lyricsData.lines" :key="`${line.timeMs}:${index}`" :data-lyric-index="index" :class="['lyrics-line', { active: index === activeLyricIndex }]" @click="seekLyric(line)">
+            <span>{{ line.text }}</span><small v-if="line.translation">{{ line.translation }}</small>
+          </button>
+        </div>
+        <div v-else-if="lyricsData?.plainText" class="lyrics-plain">{{ lyricsData.plainText }}</div>
+        <div v-else class="lyrics-state"><Music2 :size="28" /><span>平台暂未提供这首歌的歌词</span></div>
+      </div>
+    </section>
+
+    <footer class="player-dock"><div class="now-playing"><button class="now-playing-summary" :class="{ active: lyricsOpen }" :disabled="!currentTrack" title="查看歌词" aria-label="查看当前歌曲歌词" :aria-pressed="lyricsOpen" @click="openLyrics"><img v-if="imageAvailable(currentTrack?.coverUrl)" :src="currentTrack?.coverUrl" alt="" @error="markImageBroken(currentTrack?.coverUrl)" /><span v-else class="dock-cover"><Music2 :size="25" /></span><div><strong>{{ currentTrack?.title || '音乐，在这里汇合' }}</strong><small :title="playbackError">{{ playbackError || (currentTrack ? `${currentTrack.artist} · ${provider(currentTrack.provider).shortName}` : '选择一首歌曲开始播放') }}</small></div></button><button v-if="currentTrack" class="icon-button subtle" :class="{ liked: currentTrack.localFavorite }" :disabled="pending.has(`local-like:${keyOf(currentTrack)}`)" :title="currentTrack.localFavorite ? '从本地喜欢移除' : '加入本地喜欢'" :aria-label="currentTrack.localFavorite ? '从本地喜欢移除' : '加入本地喜欢'" @click="toggleLocalFavorite(currentTrack)"><Heart :size="17" :fill="currentTrack.localFavorite ? 'currentColor' : 'none'" /></button></div><div class="player-center"><div class="player-buttons"><button class="icon-button subtle" :disabled="queueIndex <= 0" title="上一首" aria-label="上一首" @click="skip(-1)"><SkipBack :size="18" /></button><button class="main-play" :disabled="!currentTrack || playbackBusy" :title="playing ? '暂停' : '播放'" :aria-label="playing ? '暂停' : '播放'" @click="togglePlayback"><LoaderCircle v-if="playbackBusy" :size="22" class="spin" /><Pause v-else-if="playing" :size="21" fill="currentColor" /><Play v-else :size="21" fill="currentColor" /></button><button class="icon-button subtle" :disabled="queueIndex < 0 || queueIndex + 1 >= queue.length" title="下一首" aria-label="下一首" @click="skip(1)"><SkipForward :size="18" /></button></div><div class="progress"><small>{{ duration(currentTime * 1000) }}</small><input type="range" min="0" :max="nowDuration || 1" step="0.1" :value="currentTime" :disabled="!sourceUrl || !nowDuration" aria-label="播放进度" @change="seek" /><small>{{ duration(nowDuration * 1000) }}</small></div></div><div class="player-right"><Volume2 :size="18" /><input type="range" min="0" max="100" :value="volume" aria-label="音量" @input="setVolume" /><button class="icon-button subtle" title="播放队列" aria-label="播放队列" @click="queueOpen = !queueOpen"><ListMusic :size="21" /></button></div></footer>
     <audio ref="audio" preload="none" @play="playing = true" @pause="playing = false" @timeupdate="currentTime = audio?.currentTime || 0" @durationchange="mediaDuration = Number.isFinite(audio?.duration) ? audio!.duration : 0" @ended="ended" @error="audioError" />
     <aside v-if="queueOpen" class="queue-panel"><div><h3>播放队列 <small>{{ queue.length }} 首</small></h3><button class="icon-button subtle" aria-label="关闭队列" @click="queueOpen = false"><X :size="19" /></button></div><p v-if="!queue.length" class="muted">开始播放歌曲后，这里的队列会同步更新。</p><button v-for="(track, index) in queue" :key="keyOf(track)" class="queue-track" :class="{ current: index === queueIndex }" @click="play(track, false)"><span>{{ index + 1 }}</span><div><strong>{{ track.title }}</strong><small>{{ track.artist }} · {{ provider(track.provider).shortName }}</small></div></button></aside>
 
@@ -486,17 +577,17 @@ onUnmounted(() => { window.removeEventListener('keydown', keydown); for (const u
         <div v-if="loginCooldownSeconds > 0" class="login-notice" role="status"><AlertCircle :size="17" /><div><strong>{{ activeLoginAvailability?.message || '平台要求暂停登录请求' }}</strong><p>{{ loginCooldownSeconds }} 秒后可手动重试。切换登录方式或重开窗口不会重置倒计时；平台限制可能持续更久。</p></div></div>
         <div v-else-if="loginAvailabilityLoading || (loginRequestBusy && !loginInProgress && !loginInfo)" class="login-notice loading-notice" role="status"><LoaderCircle :size="17" class="spin" /><p>正在同步登录状态或结束上一项请求，请稍候…</p></div>
          <div class="qr-login-panel">
-          <p>{{ loginProvider === 'qishui' ? '打开汽水音乐 App 扫码并确认' : '打开网易云音乐 App 扫码并确认' }}</p>
+          <p>打开{{ scanApp(loginProvider) }} App 扫码并确认</p>
           <div class="qr-image"><LoaderCircle v-if="loginStarting || loginInfo?.state === 'validating'" :size="36" class="spin" /><img v-else-if="loginInfo?.imageDataUrl && qrSeconds > 0" :src="loginInfo.imageDataUrl" alt="平台登录二维码" /><div v-else><ShieldCheck v-if="loginInfo?.state === 'confirmed'" :size="44" /><QrCode v-else :size="44" /><span>{{ loginInfo?.state === 'confirmed' ? '登录成功' : '二维码不可用' }}</span></div></div>
           <p class="qr-state" :class="{ error: loginError || loginInfo?.state === 'error' }">{{ loginStarting ? '正在生成二维码…' : loginError || loginInfo?.message || '请刷新二维码' }}</p>
           <small v-if="loginInfo && ['waiting', 'scanned'].includes(loginInfo.state)">{{ qrSeconds > 0 ? `${qrSeconds} 秒后过期 · ${nextCheckSeconds ? `${nextCheckSeconds} 秒后再次检查 · ` : ''}已检查 ${loginInfo.checkCount} 次` : '二维码已过期，请刷新' }}</small>
           <button class="secondary" :disabled="loginInProgress || loginRequestBusy || loginCooldownSeconds > 0 || loginInfo?.state === 'confirmed'" @click="refreshQr"><RefreshCw :size="16" />刷新二维码</button>
-          <p class="qr-guide">{{ loginProvider === 'qishui' ? '请使用已登录的汽水音乐 App 扫描；二维码包含当前电脑名称，确认后会继续校验账号。访客搜索和本地喜欢无需登录。' : '网易云音乐 App：使用「扫一扫」，并确认是你本人登录。' }}</p>
+          <p class="qr-guide">{{ loginProvider === 'qishui' ? '请使用已登录的汽水音乐 App 扫描；二维码包含当前电脑名称，确认后会继续校验账号。访客搜索和本地喜欢无需登录。' : loginProvider === 'qqmusic' ? '请使用已登录的 QQ 音乐 App 扫描并确认；成功后会连接账号歌单和当前账号允许的播放能力。' : '网易云音乐 App：使用「扫一扫」，并确认是你本人登录。' }}</p>
         </div>
       </section>
     </div>
 
-    <div v-if="modal" class="modal-overlay" @click.self="closeModal"><section class="modal playlist-modal" role="dialog" aria-modal="true" aria-labelledby="playlist-modal-title"><button class="modal-close icon-button subtle" :disabled="modalBusy" aria-label="关闭歌单窗口" @click="closeModal"><X :size="20" /></button><h2 id="playlist-modal-title">{{ modal === 'create' ? '创建一个新歌单' : '添加到歌单' }}</h2><p v-if="targetTrack">{{ targetTrack.title }} · {{ provider(targetTrack.provider).name }}（仅同平台）</p><p v-else>歌单将直接创建在选择的平台账号中。</p><div v-if="modalError" class="modal-error">{{ modalError }}</div><form v-if="modal === 'create'" class="create-form" @submit.prevent="createPlaylist"><label>所属平台<select v-model="createProvider" :disabled="Boolean(targetTrack) || modalBusy"><option v-for="item in statuses" :key="item.id" :value="item.id" :disabled="!item.connected">{{ item.name }}{{ item.connected ? '' : ' · 未登录' }}</option></select></label><label>歌单名称<input v-model="playlistName" maxlength="80" autofocus placeholder="给你的歌单起个名字" :disabled="modalBusy" /></label><label class="checkbox"><input v-model="privatePlaylist" type="checkbox" :disabled="modalBusy" />设为私密歌单</label><button class="primary" :disabled="modalBusy || !playlistName.trim() || !provider(createProvider).connected"><LoaderCircle v-if="modalBusy" :size="17" class="spin" /><Plus v-else :size="17" />{{ targetTrack ? '创建并添加歌曲' : '创建歌单' }}</button></form><template v-else><button class="new-playlist" :disabled="modalBusy" @click="openCreate(true)"><Plus :size="19" />新建歌单并添加</button><div class="playlist-options"><button v-for="playlist in writablePlaylists" :key="playlist.id" :disabled="modalBusy" @click="addToPlaylist(playlist)"><ListMusic :size="23" /><span><strong>{{ playlist.name }}</strong><small>{{ playlist.trackCount }} 首</small></span><Plus :size="17" /></button><p v-if="!modalBusy && !writablePlaylists.length" class="muted">没有可添加的歌单，可以创建新歌单。</p></div><button v-if="modalCursor && !modalBusy" class="secondary load-more" @click="loadModalPlaylists(true)">更多歌单</button><button v-else-if="modalError && !modalBusy" class="secondary" @click="loadModalPlaylists()">重新加载歌单</button><div v-if="modalBusy" class="loading"><LoaderCircle :size="19" class="spin" />正在同步…</div></template></section></div>
+    <div v-if="modal" class="modal-overlay" @click.self="closeModal"><section class="modal playlist-modal" role="dialog" aria-modal="true" aria-labelledby="playlist-modal-title"><button class="modal-close icon-button subtle" :disabled="modalBusy" aria-label="关闭歌单窗口" @click="closeModal"><X :size="20" /></button><h2 id="playlist-modal-title">{{ modal === 'create' ? '创建一个新歌单' : '添加到歌单' }}</h2><p v-if="targetTrack">{{ targetTrack.title }} · {{ provider(targetTrack.provider).name }}（仅同平台）</p><p v-else>歌单将直接创建在选择的平台账号中。</p><div v-if="modalError" class="modal-error">{{ modalError }}</div><form v-if="modal === 'create'" class="create-form" @submit.prevent="createPlaylist"><label>所属平台<select v-model="createProvider" :disabled="Boolean(targetTrack) || modalBusy"><option v-for="item in statuses" :key="item.id" :value="item.id" :disabled="!item.connected">{{ item.name }}{{ item.connected ? '' : ' · 未登录' }}</option></select></label><label>歌单名称<input v-model="playlistName" maxlength="80" autofocus placeholder="给你的歌单起个名字" :disabled="modalBusy" /></label><label class="checkbox" :title="createProvider === 'qqmusic' ? 'QQ音乐当前只支持创建普通歌单' : ''"><input v-model="privatePlaylist" type="checkbox" :disabled="modalBusy || createProvider === 'qqmusic'" />设为私密歌单<span v-if="createProvider === 'qqmusic'">（QQ音乐暂不支持）</span></label><button class="primary" :disabled="modalBusy || !playlistName.trim() || !provider(createProvider).connected"><LoaderCircle v-if="modalBusy" :size="17" class="spin" /><Plus v-else :size="17" />{{ targetTrack ? '创建并添加歌曲' : '创建歌单' }}</button></form><template v-else><button class="new-playlist" :disabled="modalBusy" @click="openCreate(true)"><Plus :size="19" />新建歌单并添加</button><div class="playlist-options"><button v-for="playlist in writablePlaylists" :key="playlist.id" :disabled="modalBusy" @click="addToPlaylist(playlist)"><ListMusic :size="23" /><span><strong>{{ playlist.name }}</strong><small>{{ playlist.trackCount }} 首</small></span><Plus :size="17" /></button><p v-if="!modalBusy && !writablePlaylists.length" class="muted">没有可添加的歌单，可以创建新歌单。</p></div><button v-if="modalCursor && !modalBusy" class="secondary load-more" @click="loadModalPlaylists(true)">更多歌单</button><button v-else-if="modalError && !modalBusy" class="secondary" @click="loadModalPlaylists()">重新加载歌单</button><div v-if="modalBusy" class="loading"><LoaderCircle :size="19" class="spin" />正在同步…</div></template></section></div>
     <div v-if="toast" class="toast" role="status">{{ toast }}<button aria-label="关闭提示" @click="toast = ''"><X :size="15" /></button></div>
   </div>
 </template>

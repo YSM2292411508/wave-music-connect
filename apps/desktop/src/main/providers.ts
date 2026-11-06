@@ -1,13 +1,15 @@
 import type { ProviderId, ProviderStatus } from '../shared/contracts.js'
 import { NeteaseProvider } from './api/netease.js'
 import { QishuiProvider } from './api/qishui.js'
+import { QqMusicProvider } from './api/qqmusic.js'
 import type { MusicProvider } from './api/provider.js'
 import { message } from './api/transport.js'
 
 export class Providers {
   readonly netease = new NeteaseProvider()
   readonly qishui = new QishuiProvider()
-  readonly all: Record<ProviderId, MusicProvider> = { netease: this.netease, qishui: this.qishui }
+  readonly qqmusic = new QqMusicProvider()
+  readonly all: Record<ProviderId, MusicProvider> = { netease: this.netease, qishui: this.qishui, qqmusic: this.qqmusic }
   private errors = new Map<ProviderId, string>()
   statuses(): ProviderStatus[] {
     return Object.values(this.all).map(provider => ({ ...provider.status(),

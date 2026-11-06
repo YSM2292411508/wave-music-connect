@@ -1,6 +1,6 @@
 {
   "name": "wave-music-aggregator",
-  "version": "0.5.17",
+  "version": "0.7.1",
   "private": true,
   "scripts": {
     "dev": "pnpm --filter @wavemusic/connect dev",

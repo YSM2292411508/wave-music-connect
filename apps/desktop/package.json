@@ -1,8 +1,8 @@
 {
   "name": "@wavemusic/connect",
-  "version": "0.5.17",
+  "version": "0.7.1",
   "private": true,
-  "description": "A local API client for NetEase Cloud Music and Qishui Music.",
+  "description": "A local API client for NetEase Cloud Music, Qishui Music, and QQ Music.",
   "author": "WaveMusic contributors",
   "main": "out/main/index.js",
   "scripts": {
@@ -12,6 +12,7 @@
     "package:win": "pnpm build && electron-builder --win nsis"
   },
   "dependencies": {
+    "@yakult-green-tea/qq-music-api": "3.3.5",
     "lucide-vue-next": "0.468.0",
     "qishui-api": "file:../../vendor/qishui-api-0.1.1.tgz",
     "qishui-core": "file:../../vendor/qishui-core-0.2.0.tgz",
@@ -44,7 +45,9 @@
       "target": [
         {
           "target": "nsis",
-          "arch": ["x64"]
+          "arch": [
+            "x64"
+          ]
         }
       ]
     },

@@ -8,6 +8,7 @@ const domains: Record<ProviderId, string[]> = {
   netease: ['music.126.net'],
   qishui: ['douyinvod.com', 'bytecdn.cn', 'bytecdntp.com', 'ibytedtos.com', 'pstatp.com', 'byteimg.com',
     'zijieapi.com', 'qishui.com', 'bytedance.com', 'bytedance.net', 'byted.org', 'snssdk.com'],
+  qqmusic: ['qq.com', 'gtimg.cn', 'tencentmusic.com'],
 }
 function allowed(provider: ProviderId, input: string): string {
   const url = new URL(input)

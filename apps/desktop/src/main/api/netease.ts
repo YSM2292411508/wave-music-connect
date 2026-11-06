@@ -4,6 +4,7 @@ import type { Playlist, PlaylistPage, TrackPage, TrackResult } from '../../share
 import { MusicProvider, type LoginTicket, type PollResult } from './provider.js'
 import { array, cookie, imageUrl, object, requestJson, RequestFailure, retryAfterMs, text, type JsonObject } from './transport.js'
 import { logEvent } from '../logger.js'
+import { lrcLyrics } from './lyrics.js'
 
 const publicKey = '-----BEGIN PUBLIC KEY-----\nMIGfMA0GCSqGSIb3DQEBAQUAA4GNADCBiQKBgQDgtQn2JZ34ZC28NWYpAUd98iZ37BUrX/aKzmFbt7clFSs6sXqHauqKWqdtLkF2KexO40H1YTX8z2lSgBBOAxLsvaklV8k4cBFK9snQXE9/DDaFt6Rr7iVZMldczhC0JNgTz+SHXT6CBHuX3e9SdB1Ua44oncaTWz7OBGLbCiK45wIDAQAB\n-----END PUBLIC KEY-----'
 function encrypt(data: JsonObject): string {
@@ -167,6 +168,10 @@ export class NeteaseProvider extends MusicProvider {
   async addToPlaylist(trackId: string, playlistId: string) {
     this.requireAccount()
     await this.api('/playlist/manipulate/tracks', { op: 'add', pid: playlistId, trackIds: JSON.stringify([trackId]), imme: true })
+  }
+  async lyrics(trackId: string) {
+    const data = await this.api('/song/lyric', { id: trackId, lv: -1, kv: -1, tv: -1 })
+    return lrcLyrics(this.id, trackId, object(data.lrc).lyric, object(data.tlyric).lyric)
   }
   async playback(trackId: string) {
     this.requireAccount()

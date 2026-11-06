@@ -8,6 +8,7 @@ import type { Playlist, PlaylistPage, ProviderStatus, TrackPage, TrackResult } f
 import { MusicProvider, type LoginTicket, type PollResult } from './provider.js'
 import { array, cookie, diagnostic, imageUrl, object, requestJson, RequestFailure, retryAfterMs, text, type JsonObject } from './transport.js'
 import { logEvent } from '../logger.js'
+import { structuredLyrics } from './lyrics.js'
 
 const WEB_USER_AGENT = 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/136 Safari/537.36'
 const PC_USER_AGENT = 'LunaPC/3.7.0(official)'
@@ -360,6 +361,12 @@ class LegacyQishuiProvider extends MusicProvider {
   async addToPlaylist(trackId: string, playlistId: string) {
     this.requireAccount()
     await this.pcRequest('/luna/pc/me/playlist/media/append', {}, { playlist_id: playlistId, media: [{ id: trackId, type: 'track' }] })
+  }
+
+  async lyrics(trackId: string) {
+    const { getTrackDetail } = await import('qishui-api')
+    const detail = await getTrackDetail(trackId, { signal: this.requestSignal() })
+    return structuredLyrics(this.id, trackId, detail.lyrics?.sentences || [], detail.clip_start_ms)
   }
 
   private playbackSource(data: JsonObject) {

@@ -43,6 +43,7 @@ const bridge: DesktopBridge = {
     addToPlaylist: (track, playlistId) => ipcRenderer.invoke('music:add-to-playlist', {
       track: { provider: track.provider, trackId: track.trackId }, playlistId,
     }),
+    lyrics: track => ipcRenderer.invoke('music:lyrics', { provider: track.provider, trackId: track.trackId }),
     playback: track => ipcRenderer.invoke('music:playback', { provider: track.provider, trackId: track.trackId }),
     releasePlayback: url => ipcRenderer.invoke('music:release-playback', url),
   },

@@ -1,6 +1,6 @@
 # Third-Party Notices
 
-WaveMusic Connect 0.5.13 includes built packages from:
+WaveMusic Connect includes built packages from:
 
 - `D:\SKILL\qishui-api-master\qishui-api-master` (`qishui-api` and `qishui-core`)
 - Upstream project: `Yinxe/qishui-api` - https://github.com/Yinxe/qishui-api
@@ -10,6 +10,13 @@ WaveMusic Connect also references endpoint behavior documented by:
 
 - `guowenye/qishui-api` - https://github.com/guowenye/qishui-api
 - Copyright (c) 2026 arrow
+- License: MIT
+
+WaveMusic Connect 0.6.0 also includes:
+
+- Package: `@yakult-green-tea/qq-music-api` version `3.3.5`
+- Upstream project: `yakult-green-tea/qq-music-api` - https://github.com/yakult-green-tea/qq-music-api
+- Original project: `Rain120/qq-music-api` - https://github.com/Rain120/qq-music-api
 - License: MIT
 
 The MIT License
