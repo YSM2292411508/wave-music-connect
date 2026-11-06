@@ -516,6 +516,7 @@ onUnmounted(() => { window.removeEventListener('keydown', keydown); window.remov
 
 <template>
   <div class="app-shell">
+    <header class="window-titlebar"><img :src="appIcon" alt="" /><span>WaveMusic Connect</span></header>
     <aside class="sidebar">
       <div class="brand"><img :src="appIcon" alt="WaveMusic" /><div><strong>WaveMusic</strong><small>MUSIC CONNECT</small></div></div>
       <nav aria-label="主导航">

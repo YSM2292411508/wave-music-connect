@@ -1,6 +1,6 @@
 import { join } from 'node:path'
 import { pathToFileURL } from 'node:url'
-import { app, BrowserWindow, ipcMain, protocol, session, shell, type IpcMainInvokeEvent } from 'electron'
+import { app, BrowserWindow, ipcMain, nativeTheme, protocol, session, shell, type IpcMainInvokeEvent } from 'electron'
 import type { ProviderId, TrackRef, TrackResult, TrackPage, PlaylistPage } from '../shared/contracts.js'
 import { Providers } from './providers.js'
 import { QrLogins } from './login.js'
@@ -17,6 +17,12 @@ let logins: QrLogins
 let media: MediaStreams
 let localFavorites: LocalFavorites
 const rendererPath = join(__dirname, '../renderer/index.html')
+const titleBarHeight = 42
+function titleBarOverlay() {
+  return nativeTheme.shouldUseDarkColors
+    ? { color: '#111311', symbolColor: '#f0f2ef', height: titleBarHeight }
+    : { color: '#f5f5f7', symbolColor: '#1d1d1f', height: titleBarHeight }
+}
 function emit(channel: string, data: unknown) { if (mainWindow && !mainWindow.isDestroyed()) mainWindow.webContents.send(channel, data) }
 function publish() {
   emit('providers:status-changed', providers.statuses())
@@ -172,7 +178,8 @@ function registerIpc() {
 }
 function createMainWindow() {
   const window = new BrowserWindow({ width: 1440, height: 920, minWidth: 1040, minHeight: 720, show: false,
-    title: 'WaveMusic Connect', backgroundColor: '#f5f5f7', autoHideMenuBar: true,
+    title: 'WaveMusic Connect', backgroundColor: nativeTheme.shouldUseDarkColors ? '#0e100f' : '#f5f5f7', autoHideMenuBar: true,
+    titleBarStyle: 'hidden', titleBarOverlay: titleBarOverlay(),
     webPreferences: { preload: join(__dirname, '../preload/index.js'), contextIsolation: true, nodeIntegration: false,
       sandbox: true, webSecurity: true, webviewTag: false } })
   mainWindow = window
@@ -203,6 +210,9 @@ app.whenReady().then(async () => {
   }, state => emit('login:availability-changed', state))
   registerIpc()
   createMainWindow()
+  nativeTheme.on('updated', () => {
+    if (mainWindow && !mainWindow.isDestroyed()) mainWindow.setTitleBarOverlay(titleBarOverlay())
+  })
   void providers.refresh().then(publish)
   app.on('activate', () => { if (!mainWindow) createMainWindow() })
 })

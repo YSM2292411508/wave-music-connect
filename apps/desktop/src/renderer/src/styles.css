@@ -28,6 +28,7 @@
   --rose: #f07e99;
   --sidebar-width: 232px;
   --dock-height: 88px;
+  --titlebar-height: 42px;
 }
 
 :root[data-accent='sky'] { --accent: #4f91f5; --accent-strong: #70a7f7; --accent-ink: #071a36; }
@@ -55,10 +56,27 @@ small { color: var(--muted); }
 ::-webkit-scrollbar-thumb:hover { background: #4a524d; border: 2px solid transparent; background-clip: padding-box; }
 ::-webkit-scrollbar-track { background: transparent; }
 
-.app-shell { min-height: 100vh; background: var(--bg); }
+.app-shell { min-height: 100vh; padding-top: var(--titlebar-height); background: var(--bg); }
+.window-titlebar {
+  position: fixed;
+  inset: 0 0 auto 0;
+  z-index: 100;
+  height: var(--titlebar-height);
+  padding: 0 12px;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  color: #f0f2ef;
+  background: #111311;
+  border-bottom: 1px solid #ffffff12;
+  user-select: none;
+  -webkit-app-region: drag;
+}
+.window-titlebar img { width: 22px; height: 22px; border-radius: 5px; }
+.window-titlebar span { font-size: 12px; font-weight: 500; }
 .sidebar {
   position: fixed;
-  inset: 0 auto var(--dock-height) 0;
+  inset: var(--titlebar-height) auto var(--dock-height) 0;
   z-index: 8;
   width: var(--sidebar-width);
   padding: 22px 14px 14px;
@@ -115,7 +133,7 @@ i.online { background: #76d6a4; box-shadow: 0 0 0 3px #76d6a411; }
 .accounts-nav span { margin-left: auto; color: #737a75; font-size: 9px; font-variant-numeric: tabular-nums; }
 .version { margin: 12px 11px 0; color: #505652; font-size: 8px; }
 
-.workspace { min-height: 100vh; margin-left: var(--sidebar-width); padding: 0 34px calc(var(--dock-height) + 34px); background: var(--bg); }
+.workspace { min-height: calc(100vh - var(--titlebar-height)); margin-left: var(--sidebar-width); padding: 0 34px calc(var(--dock-height) + 34px); background: var(--bg); }
 .topbar {
   position: sticky;
   top: 0;
@@ -527,6 +545,10 @@ input[type='range']:hover::-webkit-slider-thumb { box-shadow: 0 0 0 3px var(--ac
 [data-theme='light'] .playlist-options button:hover:not(:disabled) { background: #1d1d1f04; }
 [data-theme='light'] .playlist-options button strong { color: #34343a; }
 [data-theme='light'] .muted { color: #777780; }
+
+@media (prefers-color-scheme: light) {
+  .window-titlebar { color: #1d1d1f; background: #f5f5f7; border-bottom-color: #1d1d1f12; }
+}
 
 @media (max-width: 1200px) {
   .workspace { padding-left: 26px; padding-right: 26px; }
