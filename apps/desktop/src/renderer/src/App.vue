@@ -4,6 +4,7 @@ import { Search, Heart, Library, UserRound, QrCode, RefreshCw, Plus, Play, Pause
   Volume2, ListMusic, X, LogOut, ShieldCheck, Music2, ChevronLeft, LoaderCircle, AlertCircle,
   ScanLine, FileText, Check, Palette, Sun, Moon, Monitor } from 'lucide-vue-next'
 import appIcon from '../../../build/icon.png'
+import PlaybackProgress from './components/PlaybackProgress.vue'
 import type { DesktopBridge, LoginAvailability, LyricLine, LyricsResult, ProviderId, ProviderStatus, QrLoginSession, TrackResult, TrackPage, Playlist, PlaylistPage, ViewName } from './types'
 
 const bridge = window.waveDesktop
@@ -364,6 +365,7 @@ const playbackError = ref('')
 const queueOpen = ref(false)
 const currentTime = ref(0)
 const mediaDuration = ref(0)
+const bufferedRanges = ref<{ start: number; end: number }[]>([])
 const volume = ref(70)
 let playbackVersion = 0
 const sourceUrl = ref('')
@@ -413,12 +415,10 @@ function closeLyrics() {
   lyricsOpen.value = false; lyricsLoading.value = false; lyricsError.value = ''
 }
 function seekLyric(line: LyricLine) {
-  if (!audio.value) return
   const target = Math.max(0, (line.timeMs - (lyricsData.value?.offsetMs || 0)) / 1000)
-  audio.value.currentTime = nowDuration.value ? Math.min(target, nowDuration.value) : target
-  currentTime.value = audio.value.currentTime
+  seek(target)
 }
-function releaseSource() { const url = sourceUrl.value; sourceUrl.value = ''; sourceExpiry.value = 0; if (url) void bridge?.music.releasePlayback(url).catch(() => {}) }
+function releaseSource() { const url = sourceUrl.value; sourceUrl.value = ''; sourceExpiry.value = 0; bufferedRanges.value = []; if (url) void bridge?.music.releasePlayback(url).catch(() => {}) }
 function stopPlayback(clear = false) {
   playbackVersion++
   audio.value?.pause()
@@ -453,7 +453,26 @@ async function togglePlayback() {
 function skip(delta: number) { const track = queue.value[queueIndex.value + delta]; if (track) void play(track, false) }
 function ended() { playing.value = false; if (queueIndex.value >= 0 && queueIndex.value + 1 < queue.value.length) skip(1) }
 function audioError() { if (!sourceUrl.value) return; playing.value = false; playbackError.value = '媒体流无法播放：可能格式不支持、网络异常或授权过期，请重新播放'; notify(playbackError.value); releaseSource() }
-function seek(event: Event) { if (audio.value && nowDuration.value) audio.value.currentTime = Number((event.target as HTMLInputElement).value) }
+function seek(seconds: number) {
+  if (!audio.value || !sourceUrl.value || mediaDuration.value <= 0 || !Number.isFinite(seconds)) return
+  try {
+    audio.value.currentTime = Math.min(mediaDuration.value, Math.max(0, seconds))
+    currentTime.value = audio.value.currentTime
+  } catch { notify('暂时无法跳转，请等待音频加载后重试') }
+}
+function syncBuffer() {
+  const ranges: { start: number; end: number }[] = []
+  if (sourceUrl.value && audio.value) {
+    const buffered = audio.value.buffered
+    for (let index = 0; index < buffered.length; index++) ranges.push({ start: buffered.start(index), end: buffered.end(index) })
+  }
+  bufferedRanges.value = ranges
+}
+function syncDuration() {
+  const value = audio.value?.duration
+  mediaDuration.value = value !== undefined && Number.isFinite(value) && value > 0 ? value : 0
+  syncBuffer()
+}
 function setVolume(event: Event) { volume.value = Number((event.target as HTMLInputElement).value); if (audio.value) audio.value.volume = volume.value / 100 }
 function keydown(event: KeyboardEvent) {
   if (event.key === 'Escape') { closeLogin(); closeModal(); closeLyrics(); queueOpen.value = false; themeMenuOpen.value = false }
@@ -620,8 +639,32 @@ onUnmounted(() => { window.removeEventListener('keydown', keydown); window.remov
       </div>
     </section>
 
-    <footer class="player-dock"><div class="now-playing"><button class="now-playing-summary" :class="{ active: lyricsOpen }" :disabled="!currentTrack" title="查看歌词" aria-label="查看当前歌曲歌词" :aria-pressed="lyricsOpen" @click="openLyrics"><img v-if="imageAvailable(currentTrack?.coverUrl)" :src="currentTrack?.coverUrl" alt="" @error="markImageBroken(currentTrack?.coverUrl)" /><span v-else class="dock-cover"><Music2 :size="25" /></span><div><strong>{{ currentTrack?.title || '音乐，在这里汇合' }}</strong><small :title="playbackError">{{ playbackError || (currentTrack ? `${currentTrack.artist} · ${provider(currentTrack.provider).shortName}` : '选择一首歌曲开始播放') }}</small></div></button><button v-if="currentTrack" class="icon-button subtle" :class="{ liked: currentTrack.localFavorite }" :disabled="pending.has(`local-like:${keyOf(currentTrack)}`)" :title="currentTrack.localFavorite ? '从本地喜欢移除' : '加入本地喜欢'" :aria-label="currentTrack.localFavorite ? '从本地喜欢移除' : '加入本地喜欢'" @click="toggleLocalFavorite(currentTrack)"><Heart :size="17" :fill="currentTrack.localFavorite ? 'currentColor' : 'none'" /></button></div><div class="player-center"><div class="player-buttons"><button class="icon-button subtle" :disabled="queueIndex <= 0" title="上一首" aria-label="上一首" @click="skip(-1)"><SkipBack :size="18" /></button><button class="main-play" :disabled="!currentTrack || playbackBusy" :title="playing ? '暂停' : '播放'" :aria-label="playing ? '暂停' : '播放'" @click="togglePlayback"><LoaderCircle v-if="playbackBusy" :size="22" class="spin" /><Pause v-else-if="playing" :size="21" fill="currentColor" /><Play v-else :size="21" fill="currentColor" /></button><button class="icon-button subtle" :disabled="queueIndex < 0 || queueIndex + 1 >= queue.length" title="下一首" aria-label="下一首" @click="skip(1)"><SkipForward :size="18" /></button></div><div class="progress"><small>{{ duration(currentTime * 1000) }}</small><input type="range" min="0" :max="nowDuration || 1" step="0.1" :value="currentTime" :disabled="!sourceUrl || !nowDuration" aria-label="播放进度" @change="seek" /><small>{{ duration(nowDuration * 1000) }}</small></div></div><div class="player-right"><Volume2 :size="18" /><input type="range" min="0" max="100" :value="volume" aria-label="音量" @input="setVolume" /><button class="icon-button subtle" :class="{ active: queueOpen }" title="播放队列" aria-label="播放队列" :aria-pressed="queueOpen" @click="queueOpen = !queueOpen"><ListMusic :size="21" /></button></div></footer>
-    <audio ref="audio" preload="none" @play="playing = true" @pause="playing = false" @timeupdate="currentTime = audio?.currentTime || 0" @durationchange="mediaDuration = Number.isFinite(audio?.duration) ? audio!.duration : 0" @ended="ended" @error="audioError" />
+    <footer class="player-dock">
+      <PlaybackProgress :current-time="currentTime" :duration="nowDuration" :buffered="bufferedRanges" :source-key="sourceUrl"
+        :disabled="!sourceUrl || !mediaDuration" @seek="seek" />
+      <div class="now-playing">
+        <button class="now-playing-summary" :class="{ active: lyricsOpen }" :disabled="!currentTrack" title="查看歌词" aria-label="查看当前歌曲歌词" :aria-pressed="lyricsOpen" @click="openLyrics">
+          <img v-if="imageAvailable(currentTrack?.coverUrl)" :src="currentTrack?.coverUrl" alt="" @error="markImageBroken(currentTrack?.coverUrl)" />
+          <span v-else class="dock-cover"><Music2 :size="25" /></span>
+          <div><strong>{{ currentTrack?.title || '音乐，在这里汇合' }}</strong><small :title="playbackError">{{ playbackError || (currentTrack ? `${currentTrack.artist} · ${provider(currentTrack.provider).shortName}` : '选择一首歌曲开始播放') }}</small></div>
+        </button>
+        <button v-if="currentTrack" class="icon-button subtle" :class="{ liked: currentTrack.localFavorite }" :disabled="pending.has(`local-like:${keyOf(currentTrack)}`)" :title="currentTrack.localFavorite ? '从本地喜欢移除' : '加入本地喜欢'" :aria-label="currentTrack.localFavorite ? '从本地喜欢移除' : '加入本地喜欢'" @click="toggleLocalFavorite(currentTrack)"><Heart :size="17" :fill="currentTrack.localFavorite ? 'currentColor' : 'none'" /></button>
+      </div>
+      <div class="player-center">
+        <div class="player-buttons">
+          <button class="icon-button subtle" :disabled="queueIndex <= 0" title="上一首" aria-label="上一首" @click="skip(-1)"><SkipBack :size="20" /></button>
+          <button class="main-play" :disabled="!currentTrack || playbackBusy" :title="playing ? '暂停' : '播放'" :aria-label="playing ? '暂停' : '播放'" @click="togglePlayback"><LoaderCircle v-if="playbackBusy" :size="23" class="spin" /><Pause v-else-if="playing" :size="22" fill="currentColor" /><Play v-else :size="22" fill="currentColor" /></button>
+          <button class="icon-button subtle" :disabled="queueIndex < 0 || queueIndex + 1 >= queue.length" title="下一首" aria-label="下一首" @click="skip(1)"><SkipForward :size="20" /></button>
+        </div>
+      </div>
+      <div class="player-right">
+        <div class="player-time" aria-label="播放时间"><span>{{ duration(currentTime * 1000) }}</span><span class="time-divider">/</span><span>{{ nowDuration ? duration(nowDuration * 1000) : '--:--' }}</span></div>
+        <Volume2 :size="18" /><input type="range" min="0" max="100" :value="volume" aria-label="音量" @input="setVolume" />
+        <button class="icon-button subtle" :class="{ active: queueOpen }" title="播放队列" aria-label="播放队列" :aria-pressed="queueOpen" @click="queueOpen = !queueOpen"><ListMusic :size="21" /></button>
+      </div>
+    </footer>
+    <audio ref="audio" preload="none" @play="playing = true" @pause="playing = false" @timeupdate="currentTime = audio?.currentTime || 0"
+      @loadedmetadata="syncDuration" @durationchange="syncDuration" @progress="syncBuffer" @seeked="syncBuffer" @ended="ended" @error="audioError" />
     <aside v-if="queueOpen" class="queue-panel"><div><h3>播放队列 <small>{{ queue.length }} 首</small></h3><button class="icon-button subtle" aria-label="关闭队列" @click="queueOpen = false"><X :size="19" /></button></div><p v-if="!queue.length" class="muted">开始播放歌曲后，这里的队列会同步更新。</p><button v-for="(track, index) in queue" :key="keyOf(track)" class="queue-track" :class="{ current: index === queueIndex }" @click="play(track, false)"><span>{{ index + 1 }}</span><div><strong>{{ track.title }}</strong><small>{{ track.artist }} · {{ provider(track.provider).shortName }}</small></div></button></aside>
 
     <div v-if="loginProvider" class="modal-overlay" @click.self="closeLogin">
