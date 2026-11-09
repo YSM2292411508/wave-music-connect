@@ -93,5 +93,10 @@ export type DesktopBridge = {
     lyrics(track: TrackRef): Promise<LyricsResult>
     playback(track: TrackRef): Promise<PlaybackSource>
     releasePlayback(url: string): Promise<void>
+    history(): Promise<TrackResult[]>
+    recordPlay(track: TrackResult): Promise<void>
+    clearHistory(): Promise<void>
+    exportFavorites(): Promise<{ cancelled: boolean; path?: string }>
+    importFavorites(): Promise<{ cancelled: boolean; added?: number; skipped?: number }>
   }
 }

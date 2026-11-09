@@ -1,0 +1,99 @@
+name: Windows Desktop Build
+
+on:
+  push:
+    branches:
+      - main
+      - 'feat/**'
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: windows-build-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  build-windows:
+    runs-on: windows-latest
+    timeout-minutes: 35
+    env:
+      # GitHub release assets occasionally return 504 in hosted runners.
+      # This mirror hosts the official Electron release artifacts.
+      ELECTRON_MIRROR: https://npmmirror.com/mirrors/electron/
+    steps:
+      - name: Check out source
+        uses: actions/checkout@v4
+
+      - name: Set up pnpm
+        uses: pnpm/action-setup@v4
+        with:
+          version: 12.18.0
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: pnpm
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Typecheck
+        run: pnpm typecheck
+
+      - name: Build app
+        run: pnpm build
+
+      - name: Package Windows installer
+        run: pnpm package:win
+        env:
+          CSC_IDENTITY_AUTO_DISCOVERY: 'false'
+
+      - name: Upload installer
+        uses: actions/upload-artifact@v4
+        with:
+          name: WaveMusic-Connect-Windows-Installer
+          path: apps/desktop/release/*.exe
+          if-no-files-found: error
+          retention-days: 14
+
+  publish-release:
+    name: Publish Windows release
+    needs: build-windows
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - name: Check out tagged source
+        uses: actions/checkout@v4
+
+      - name: Download successful Windows installer
+        uses: actions/download-artifact@v4
+        with:
+          name: WaveMusic-Connect-Windows-Installer
+          path: dist
+
+      - name: Create GitHub Release with installer checksum
+        shell: bash
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          set -euo pipefail
+          version=$(jq -r .version apps/desktop/package.json)
+          tag="v${version}"
+          installer=$(find dist -maxdepth 1 -type f -name '*.exe' -print -quit)
+          if [ -z "$installer" ]; then echo "::error::No Windows installer to release"; exit 1; fi
+          if gh release view "$tag" >/dev/null 2>&1; then
+            echo "Release $tag already exists; not overwriting published binaries."
+            exit 0
+          fi
+          sha256sum "$installer" > "${installer}.sha256"
+          gh release create "$tag" "$installer" "${installer}.sha256" \
+            --target "$GITHUB_SHA" \
+            --title "WaveMusic Connect ${version}" \
+            --notes-file docs/RELEASE_NOTES_0.9.3.md \
+            --latest

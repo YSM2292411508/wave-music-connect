@@ -56,6 +56,60 @@ export class LocalFavorites {
       .map(item => ({ ...item.track, localFavorite: true }))
   }
 
+
+  /** Export only local song metadata. Never include credentials or remote media URLs. */
+  async exportBackup(): Promise<string> {
+    await this.writes
+    const values = await this.load()
+    const favorites = [...values.values()].sort((a, b) => b.addedAt - a.addedAt)
+    return JSON.stringify({ version: 1, favorites } satisfies FavoriteDocument, null, 2)
+  }
+
+  /** Merge backup songs without deleting existing favorites. */
+  async importBackup(content: string): Promise<{ added: number; skipped: number }> {
+    if (content.length > 8 * 1024 * 1024) throw new Error('备份文件过大')
+    let parsed: unknown
+    try { parsed = JSON.parse(content) }
+    catch { throw new Error('备份文件不是有效的 JSON') }
+    if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) throw new Error('备份文件格式无效')
+    const document = parsed as Partial<FavoriteDocument>
+    if (document.version !== 1 || !Array.isArray(document.favorites) || document.favorites.length > MAX_FAVORITES) {
+      throw new Error('备份格式或收藏数量不受支持')
+    }
+    // Validate the entire file before touching the existing local collection.
+    const incoming: StoredFavorite[] = document.favorites.map(item => {
+      if (!item || typeof item !== 'object') throw new Error('备份文件包含无效歌曲')
+      const track = this.normalize(item.track)
+      const addedAt = typeof item.addedAt === 'number' && Number.isFinite(item.addedAt) && item.addedAt > 0
+        ? item.addedAt : Date.now()
+      return { track: { ...track, localFavorite: true }, addedAt }
+    })
+    const operation = this.writes.then(async () => {
+      const existing = await this.load()
+      const merged = new Map(existing)
+      let added = 0
+      for (const item of incoming) {
+        const key = this.key(item.track)
+        if (merged.has(key)) continue
+        if (merged.size >= MAX_FAVORITES) throw new Error('合并后的收藏超过 5000 首，未修改原有数据')
+        merged.set(key, item)
+        added++
+      }
+      if (!added) return { added, skipped: incoming.length }
+      const temporary = `${this.path}.${randomUUID()}.tmp`
+      const next: FavoriteDocument = { version: 1,
+        favorites: [...merged.values()].sort((a, b) => b.addedAt - a.addedAt) }
+      try {
+        await writeFile(temporary, JSON.stringify(next), 'utf8')
+        await rename(temporary, this.path)
+        this.values = merged
+      } finally { await unlink(temporary).catch(() => {}) }
+      return { added, skipped: incoming.length - added }
+    })
+    this.writes = operation.catch(() => {})
+    return operation
+  }
+
   set(track: TrackResult, liked: boolean): Promise<void> {
     const operation = this.writes.then(async () => {
       const values = await this.load()

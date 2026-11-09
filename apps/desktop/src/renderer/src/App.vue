@@ -2,7 +2,7 @@
 import { computed, nextTick, onMounted, onUnmounted, ref, watch } from 'vue'
 import { Search, Heart, Library, UserRound, QrCode, RefreshCw, Plus, Play, Pause, SkipBack, SkipForward,
   Volume2, ListMusic, X, LogOut, ShieldCheck, Music2, ChevronLeft, LoaderCircle, AlertCircle,
-  ScanLine, FileText, Check, Palette, Sun, Moon, Monitor } from 'lucide-vue-next'
+  ScanLine, FileText, Check, Palette, Sun, Moon, Monitor, History, Download, Upload, Trash2 } from 'lucide-vue-next'
 import appIcon from '../../../build/icon.png'
 import PlaybackProgress from './components/PlaybackProgress.vue'
 import type { DesktopBridge, LoginAvailability, LyricLine, LyricsResult, ProviderId, ProviderStatus, QrLoginSession, TrackResult, TrackPage, Playlist, PlaylistPage, ViewName } from './types'
@@ -52,6 +52,7 @@ const submitted = ref('')
 const trackPages = ref<TrackPage[]>([])
 const playlistPages = ref<PlaylistPage[]>([])
 const localFavoriteTracks = ref<TrackResult[]>([])
+const historyTracks = ref<TrackResult[]>([])
 const selectedPlaylist = ref<Playlist | null>(null)
 const busy = ref(false)
 const refreshing = ref(false)
@@ -61,9 +62,9 @@ let toastTimer: ReturnType<typeof setTimeout> | undefined
 const pending = ref(new Set<string>())
 const brokenImages = ref(new Set<string>())
 const lastActionError = ref('')
-const titles: Record<ViewName, string> = { search: '发现你的下一首喜欢', localFavorites: '本地喜欢', playlists: '我的歌单', accounts: '账号与访客模式' }
+const titles: Record<ViewName, string> = { search: '发现你的下一首喜欢', localFavorites: '本地喜欢', history: '最近播放', playlists: '我的歌单', accounts: '账号与访客模式' }
 const subtitles: Record<ViewName, string> = { search: '同时搜索网易云、汽水与 QQ 音乐，留住每一次心动。',
-  localFavorites: '只保存在这台电脑，可混合保存三个平台的歌曲。', playlists: '查看、创建并管理各平台歌单。歌曲只能添加到同一平台。',
+  localFavorites: '只保存在这台电脑，可混合保存三个平台的歌曲。', history: '最多保留最近播放的 200 首歌曲，仅存储在本机。', playlists: '查看、创建并管理各平台歌单。歌曲只能添加到同一平台。',
   accounts: '三个平台均使用对应 App 扫码登录；访客搜索和本地喜欢无需账号。' }
 const provider = (id: ProviderId) => statuses.value.find(item => item.id === id)!
 const guestMode = (id: ProviderId) => id === 'qishui' || id === 'qqmusic'
@@ -92,6 +93,7 @@ function setLocalFavoriteTracks(value: TrackResult[]) {
   syncLocalFavoriteState()
 }
 const tracks = computed(() => {
+  if (activeView.value === 'history') return historyTracks.value.filter(track => selected.value.includes(track.provider)).map(withLocalFavorite)
   const groups = selected.value.map(id => trackPages.value.find(page => page.provider === id)?.tracks || [])
   const result: TrackResult[] = []
   for (let i = 0; i < Math.max(0, ...groups.map(group => group.length)); i++) for (const group of groups) if (group[i]) result.push(group[i]!)
@@ -155,6 +157,9 @@ async function load(more = false, only?: ProviderId) {
     } else if (view === 'playlists') {
       const pages = await api().music.playlists(ids, cursors)
       if (version === requestVersion) playlistPages.value = mergePlaylists(playlistPages.value, pages, more || Boolean(only))
+    } else if (view === 'history') {
+      const history = await api().music.history()
+      if (version === requestVersion) historyTracks.value = history
     } else if (view === 'localFavorites') {
       const local = await api().music.localFavorites()
       if (version === requestVersion) {
@@ -192,6 +197,26 @@ async function refreshAccounts() {
 async function logout(id: ProviderId) {
   if (!confirm(`退出${provider(id).name}账号？只清除本软件的登录状态，不影响官方客户端。`)) return
   try { await api().providers.logout(id); statuses.value = await api().providers.list(); notify('已清除本软件的登录状态') } catch (error) { notify(reason(error)) }
+}
+async function exportFavorites() {
+  try {
+    const result = await api().music.exportFavorites()
+    if (!result.cancelled) notify('本地喜欢已导出为 JSON 备份')
+  } catch (error) { notify(reason(error)) }
+}
+async function importFavorites() {
+  try {
+    const result = await api().music.importFavorites()
+    if (result.cancelled) return
+    setLocalFavoriteTracks(await api().music.localFavorites())
+    if (activeView.value === 'localFavorites') await load()
+    notify(`导入完成：新增 ${result.added ?? 0} 首，跳过重复 ${result.skipped ?? 0} 首`)
+  } catch (error) { notify(reason(error)) }
+}
+async function clearHistory() {
+  if (!confirm('清空本机播放历史？此操作不会影响本地喜欢或平台歌单。')) return
+  try { await api().music.clearHistory(); if (activeView.value === 'history') await load(); notify('播放历史已清空') }
+  catch (error) { notify(reason(error)) }
 }
 async function openLogs() {
   try { await api().diagnostics.openLogs() } catch (error) { notify(reason(error)) }
@@ -366,7 +391,7 @@ const queueOpen = ref(false)
 const currentTime = ref(0)
 const mediaDuration = ref(0)
 const bufferedRanges = ref<{ start: number; end: number }[]>([])
-const volume = ref(70)
+const volume = ref((() => { try { const value = localStorage.getItem('wave-volume'); const saved = value === null ? 70 : Number(value); return Number.isFinite(saved) && saved >= 0 && saved <= 100 ? saved : 70 } catch { return 70 } })())
 let playbackVersion = 0
 const sourceUrl = ref('')
 const sourceExpiry = ref(0)
@@ -440,6 +465,8 @@ async function play(track: TrackResult, replaceQueue = true) {
     sourceUrl.value = source.url; sourceExpiry.value = source.expiresAt
     audio.value.src = source.url; audio.value.volume = volume.value / 100
     await audio.value.play()
+    // History is best-effort: its disk failure must never interrupt listening.
+    void api().music.recordPlay(trackSnapshot(track)).catch(() => {})
   } catch (error) {
     if (version === playbackVersion) { playbackError.value = reason(error); notify(playbackError.value); audio.value?.pause(); releaseSource() }
   } finally { if (version === playbackVersion) playbackBusy.value = false }
@@ -473,9 +500,15 @@ function syncDuration() {
   mediaDuration.value = value !== undefined && Number.isFinite(value) && value > 0 ? value : 0
   syncBuffer()
 }
-function setVolume(event: Event) { volume.value = Number((event.target as HTMLInputElement).value); if (audio.value) audio.value.volume = volume.value / 100 }
+function setVolume(event: Event) { volume.value = Number((event.target as HTMLInputElement).value); if (audio.value) audio.value.volume = volume.value / 100; try { localStorage.setItem('wave-volume', String(volume.value)) } catch {} }
 function keydown(event: KeyboardEvent) {
   if (event.key === 'Escape') { closeLogin(); closeModal(); closeLyrics(); queueOpen.value = false; themeMenuOpen.value = false }
+  const editable = (event.target as HTMLElement)?.closest('input,button,textarea,select,[contenteditable]')
+  if (event.ctrlKey && event.altKey && !event.repeat && !editable) {
+    if (event.code === 'ArrowRight') { event.preventDefault(); skip(1); return }
+    if (event.code === 'ArrowLeft') { event.preventDefault(); skip(-1); return }
+    if (event.code === 'KeyP') { event.preventDefault(); void togglePlayback(); return }
+  }
   if (event.code === 'Space' && !(event.target as HTMLElement)?.closest('input,button,textarea,select,[contenteditable]') && !loginProvider.value && !modal.value) { event.preventDefault(); void togglePlayback() }
 }
 let clockTimer: ReturnType<typeof setInterval> | undefined
@@ -541,6 +574,7 @@ onUnmounted(() => { window.removeEventListener('keydown', keydown); window.remov
       <nav aria-label="主导航">
         <button :class="{ active: activeView === 'search' }" @click="navigate('search')"><Search :size="19" />聚合搜索</button>
         <button :class="{ active: activeView === 'localFavorites' }" @click="navigate('localFavorites')"><Heart :size="19" />本地喜欢</button>
+        <button :class="{ active: activeView === 'history' }" @click="navigate('history')"><History :size="19" />最近播放</button>
         <button :class="{ active: activeView === 'playlists' }" @click="navigate('playlists')"><Library :size="19" />我的歌单</button>
       </nav>
       <p class="sidebar-label">音乐服务</p>
@@ -592,7 +626,7 @@ onUnmounted(() => { window.removeEventListener('keydown', keydown); window.remov
 
         <template v-else>
           <form v-if="activeView === 'search'" class="search-form" @submit.prevent="search"><Search :size="20" /><input v-model="query" maxlength="200" placeholder="搜索歌曲、歌手、专辑…" aria-label="搜索关键词" /><button class="primary" :disabled="!query.trim() || !selected.length || !bridge"><Search :size="15" />搜索</button></form>
-           <div class="content-toolbar"><div class="platform-filters"><button v-for="item in statuses" :key="item.id" :class="['filter', item.id, { selected: selected.includes(item.id) }]" @click="toggleProvider(item.id)"><i />{{ item.name }}<span v-if="selected.includes(item.id)"><Check :size="11" /></span></button></div><button v-if="activeView === 'playlists' && !selectedPlaylist" class="secondary" :disabled="!bridge" @click="openCreate()"><Plus :size="16" />新建歌单</button><button v-else-if="activeView === 'localFavorites' || selectedPlaylist" class="icon-button" :disabled="busy || !bridge" title="刷新列表" aria-label="刷新列表" @click="load()"><RefreshCw :size="16" /></button></div>
+           <div class="content-toolbar"><div class="platform-filters"><button v-for="item in statuses" :key="item.id" :class="['filter', item.id, { selected: selected.includes(item.id) }]" @click="toggleProvider(item.id)"><i />{{ item.name }}<span v-if="selected.includes(item.id)"><Check :size="11" /></span></button></div><button v-if="activeView === 'localFavorites'" class="secondary" :disabled="!bridge" title="导出本地收藏" @click="exportFavorites"><Download :size="16" />导出</button><button v-if="activeView === 'localFavorites'" class="secondary" :disabled="!bridge" title="从 JSON 备份合并导入" @click="importFavorites"><Upload :size="16" />导入</button><button v-if="activeView === 'history'" class="secondary" :disabled="!bridge" @click="clearHistory"><Trash2 :size="16" />清空历史</button><button v-if="activeView === 'playlists' && !selectedPlaylist" class="secondary" :disabled="!bridge" @click="openCreate()"><Plus :size="16" />新建歌单</button><button v-else-if="activeView === 'localFavorites' || selectedPlaylist" class="icon-button" :disabled="busy || !bridge" title="刷新列表" aria-label="刷新列表" @click="load()"><RefreshCw :size="16" /></button></div>
           <button v-if="selectedPlaylist" class="back-link" @click="navigate('playlists')"><ChevronLeft :size="16" />返回我的歌单</button>
           <div v-for="error in errors" :key="error.provider" class="platform-error"><AlertCircle :size="17" /><div><strong>{{ provider(error.provider).name }}</strong><span>{{ error.error }}</span></div><button v-if="!provider(error.provider).connected" @click="openLogin(error.provider)">登录</button><button v-else :disabled="busy" @click="load(false, error.provider)">重试</button></div>
           <div v-if="lastActionError" class="platform-error"><AlertCircle :size="17" /><span>{{ lastActionError }}</span><button :disabled="busy" @click="load()">重新加载</button></div>
@@ -602,12 +636,12 @@ onUnmounted(() => { window.removeEventListener('keydown', keydown); window.remov
             <div v-else-if="!busy" class="empty-state"><Library :size="48" /><h2>把喜欢，整理成歌单</h2><p>登录平台账号后，查看已有歌单，或创建一个新的开始。</p></div>
           </template>
           <template v-else>
-             <div v-if="tracks.length" class="track-list"><div class="list-caption"><span>{{ selectedPlaylist ? '歌单歌曲' : activeView === 'localFavorites' ? '跨平台本地喜欢' : `“${submitted}” 的搜索结果` }}</span><small>{{ tracks.length }} 首</small></div>
+             <div v-if="tracks.length" class="track-list"><div class="list-caption"><span>{{ selectedPlaylist ? '歌单歌曲' : activeView === 'localFavorites' ? '跨平台本地喜欢' : activeView === 'history' ? '最近播放' : `“${submitted}” 的搜索结果` }}</span><small>{{ tracks.length }} 首</small></div>
                <table><thead><tr><th class="number">#</th><th>音乐标题</th><th class="artist">歌手 / 专辑</th><th class="source">平台</th><th class="length">时长</th><th class="actions">操作</th></tr></thead><tbody><tr v-for="(track, index) in tracks" :key="keyOf(track)" :class="{ current: currentTrack && keyOf(currentTrack) === keyOf(track) }" @dblclick="play(track)"><td class="number"><button class="row-play" :disabled="playbackBusy && currentTrack?.trackId === track.trackId" :title="`播放 ${track.title}`" :aria-label="`播放 ${track.title}`" @click="play(track)"><span>{{ String(index + 1).padStart(2, '0') }}</span><Play :size="15" fill="currentColor" /></button></td><td><div class="track-title"><img v-if="imageAvailable(track.coverUrl)" :src="track.coverUrl" alt="" loading="lazy" @error="markImageBroken(track.coverUrl)" /><span v-else class="cover-placeholder"><Music2 :size="20" /></span><div><strong>{{ track.title }}</strong><small v-if="track.playback === 'restricted'">{{ track.restrictionReason }}</small><small v-else-if="track.localFavorite"><b v-if="track.vipRequired" class="vip">VIP</b>{{ trackStatus(track) }}</small><small v-else-if="track.vipRequired"><b class="vip">VIP</b></small></div></div></td><td class="artist"><strong>{{ track.artist }}</strong><small>{{ track.album || '未知专辑' }}</small></td><td class="source"><span :class="['provider-tag', track.provider]">{{ provider(track.provider).shortName }}</span></td><td class="length">{{ duration(track.durationMs) }}</td><td class="actions"><button :class="['icon-button', 'subtle', { liked: track.localFavorite }]" :disabled="pending.has(`local-like:${keyOf(track)}`)" :title="track.localFavorite ? '从本地喜欢移除' : '加入本地喜欢'" :aria-label="track.localFavorite ? '从本地喜欢移除' : '加入本地喜欢'" @click="toggleLocalFavorite(track)"><Heart :size="17" :fill="track.localFavorite ? 'currentColor' : 'none'" /></button><button class="icon-button subtle" title="添加到歌单" aria-label="添加到歌单" @click="openAdd(track)"><Plus :size="17" /></button></td></tr></tbody></table>
             </div>
-            <div v-else-if="!busy" class="empty-state"><component :is="activeView === 'localFavorites' ? Heart : Search" :size="48" /><h2>{{ !selected.length ? '请选择一个音乐平台' : activeView === 'search' && !submitted ? '你想听什么？' : activeView === 'localFavorites' ? '还没有本地喜欢' : '这里暂时没有歌曲' }}</h2><p>{{ activeView === 'search' && !submitted ? '输入关键词，在三个音乐平台里一起发现；汽水和 QQ 音乐可直接使用访客搜索。' : activeView === 'localFavorites' ? '喜欢的歌曲会保存在这台电脑。' : '可以调整关键词、刷新列表，平台歌单需要连接账号。' }}</p><div v-if="activeView !== 'search' && activeView !== 'localFavorites' && !connectedCount" class="empty-actions"><button v-for="item in statuses" :key="item.id" class="secondary" :disabled="!bridge" @click="openLogin(item.id)">{{ scanApp(item.id) }} App 扫码</button></div></div>
+            <div v-else-if="!busy" class="empty-state"><component :is="activeView === 'localFavorites' ? Heart : activeView === 'history' ? History : Search" :size="48" /><h2>{{ !selected.length ? '请选择一个音乐平台' : activeView === 'search' && !submitted ? '你想听什么？' : activeView === 'localFavorites' ? '还没有本地喜欢' : activeView === 'history' ? '还没有播放历史' : '这里暂时没有歌曲' }}</h2><p>{{ activeView === 'search' && !submitted ? '输入关键词，在三个音乐平台里一起发现；汽水和 QQ 音乐可直接使用访客搜索。' : activeView === 'localFavorites' ? '喜欢的歌曲会保存在这台电脑。' : activeView === 'history' ? '开始播放歌曲后，会自动记录在本机。' : '可以调整关键词、刷新列表，平台歌单需要连接账号。' }}</p><div v-if="activeView !== 'search' && activeView !== 'localFavorites' && !connectedCount" class="empty-actions"><button v-for="item in statuses" :key="item.id" class="secondary" :disabled="!bridge" @click="openLogin(item.id)">{{ scanApp(item.id) }} App 扫码</button></div></div>
           </template>
-          <div v-if="busy" class="loading"><LoaderCircle :size="20" class="spin" />{{ activeView === 'localFavorites' ? '正在读取本地喜欢…' : '正在向平台请求…' }}</div>
+          <div v-if="busy" class="loading"><LoaderCircle :size="20" class="spin" />{{ activeView === 'localFavorites' || activeView === 'history' ? '正在读取本地数据…' : '正在向平台请求…' }}</div>
           <button v-else-if="canLoadMore" class="load-more secondary" @click="load(true)">加载更多</button>
         </template>
       </div>
