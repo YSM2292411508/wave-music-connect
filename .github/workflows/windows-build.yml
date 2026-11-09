@@ -59,3 +59,41 @@ jobs:
           path: apps/desktop/release/*.exe
           if-no-files-found: error
           retention-days: 14
+
+  publish-release:
+    name: Publish Windows release
+    needs: build-windows
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - name: Check out tagged source
+        uses: actions/checkout@v4
+
+      - name: Download successful Windows installer
+        uses: actions/download-artifact@v4
+        with:
+          name: WaveMusic-Connect-Windows-Installer
+          path: dist
+
+      - name: Create GitHub Release with installer checksum
+        shell: bash
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          set -euo pipefail
+          version=$(jq -r .version apps/desktop/package.json)
+          tag="v${version}"
+          installer=$(find dist -maxdepth 1 -type f -name '*.exe' -print -quit)
+          if [ -z "$installer" ]; then echo "::error::No Windows installer to release"; exit 1; fi
+          if gh release view "$tag" >/dev/null 2>&1; then
+            echo "Release $tag already exists; not overwriting published binaries."
+            exit 0
+          fi
+          sha256sum "$installer" > "${installer}.sha256"
+          gh release create "$tag" "$installer" "${installer}.sha256" \
+            --target "$GITHUB_SHA" \
+            --title "WaveMusic Connect ${version}" \
+            --notes-file docs/RELEASE_NOTES_0.9.3.md \
+            --latest

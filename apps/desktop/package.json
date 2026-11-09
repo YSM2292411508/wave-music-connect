@@ -1,6 +1,6 @@
 {
   "name": "@wavemusic/connect",
-  "version": "0.9.2",
+  "version": "0.9.3",
   "private": true,
   "description": "A local API client for NetEase Cloud Music, Qishui Music, and QQ Music.",
   "author": "WaveMusic contributors",

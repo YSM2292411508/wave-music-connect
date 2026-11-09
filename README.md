@@ -37,6 +37,8 @@ WaveMusic Connect 是一个 Windows 桌面音乐聚合客户端，提供统一�
 - 点击底部当前歌曲区域打开同步歌词，支持可用的翻译歌词和点击歌词跳转进度。
 - 苹果风格的浅色与深色界面，支持跟随系统和四组可持久化的强调色。
 - 仅保存在本机的混合喜欢列表；红心不会调用平台收藏接口。
+- 本地喜欢 JSON 备份导出与合并导入、最近播放历史（最多 200 首）与清空记录。
+- 应用窗口快捷键：`Ctrl+Alt+P` 播放/暂停、`Ctrl+Alt+←/→` 上一首/下一首；记忆音量设置。
 - 独立的平台会话、账号切换清理和本机脱敏诊断日志。
 
 汽水音乐登录集成使用 `vendor/` 中的 `qishui-api` 与 `qishui-core` 包快照；QQ 音乐使用固定版本的 `@yakult-green-tea/qq-music-api`，由 Electron 在本机回环地址的随机端口内嵌运行。第三方来源及许可见 [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md)。
@@ -57,7 +59,9 @@ pnpm build
 pnpm dev
 ```
 
-Windows 安装包可在本机通过 `pnpm package:win` 构建。安装包、打包目录和编译输出均由 `.gitignore` 排除，不属于本仓库发布内容。
+正式 Windows x64 安装包在 [GitHub Releases](https://github.com/YSM2292411508/wave-music-connect/releases) 提供；CI 通过 GitHub Actions 运行类型检查、构建并上传安装程序。
+
+Windows 安装包也可在本机通过 `pnpm package:win` 构建。安装包、打包目录和编译输出均由 `.gitignore` 排除，不属于本仓库发布内容。
 
 ## 使用与隐私
 
