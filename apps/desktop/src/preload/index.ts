@@ -46,6 +46,11 @@ const bridge: DesktopBridge = {
     lyrics: track => ipcRenderer.invoke('music:lyrics', { provider: track.provider, trackId: track.trackId }),
     playback: track => ipcRenderer.invoke('music:playback', { provider: track.provider, trackId: track.trackId }),
     releasePlayback: url => ipcRenderer.invoke('music:release-playback', url),
+    history: () => ipcRenderer.invoke('music:history'),
+    recordPlay: track => ipcRenderer.invoke('music:record-play', trackSnapshot(track)),
+    clearHistory: () => ipcRenderer.invoke('music:clear-history'),
+    exportFavorites: () => ipcRenderer.invoke('music:export-favorites'),
+    importFavorites: () => ipcRenderer.invoke('music:import-favorites'),
   },
 }
 contextBridge.exposeInMainWorld('waveDesktop', bridge)
