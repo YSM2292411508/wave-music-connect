@@ -52,6 +52,7 @@ const submitted = ref('')
 const trackPages = ref<TrackPage[]>([])
 const playlistPages = ref<PlaylistPage[]>([])
 const localFavoriteTracks = ref<TrackResult[]>([])
+const historyTracks = ref<TrackResult[]>([])
 const selectedPlaylist = ref<Playlist | null>(null)
 const busy = ref(false)
 const refreshing = ref(false)
@@ -92,6 +93,7 @@ function setLocalFavoriteTracks(value: TrackResult[]) {
   syncLocalFavoriteState()
 }
 const tracks = computed(() => {
+  if (activeView.value === 'history') return historyTracks.value.filter(track => selected.value.includes(track.provider)).map(withLocalFavorite)
   const groups = selected.value.map(id => trackPages.value.find(page => page.provider === id)?.tracks || [])
   const result: TrackResult[] = []
   for (let i = 0; i < Math.max(0, ...groups.map(group => group.length)); i++) for (const group of groups) if (group[i]) result.push(group[i]!)
@@ -157,7 +159,7 @@ async function load(more = false, only?: ProviderId) {
       if (version === requestVersion) playlistPages.value = mergePlaylists(playlistPages.value, pages, more || Boolean(only))
     } else if (view === 'history') {
       const history = await api().music.history()
-      if (version === requestVersion) trackPages.value = ids.map(id => ({ provider: id, tracks: history.filter(track => track.provider === id).map(withLocalFavorite) }))
+      if (version === requestVersion) historyTracks.value = history
     } else if (view === 'localFavorites') {
       const local = await api().music.localFavorites()
       if (version === requestVersion) {
@@ -389,7 +391,7 @@ const queueOpen = ref(false)
 const currentTime = ref(0)
 const mediaDuration = ref(0)
 const bufferedRanges = ref<{ start: number; end: number }[]>([])
-const volume = ref(Number(storedChoice('wave-volume', ['0','10','20','30','40','50','60','70','80','90','100'] as const, '70')))
+const volume = ref((() => { try { const saved = Number(localStorage.getItem('wave-volume')); return Number.isFinite(saved) && saved >= 0 && saved <= 100 ? saved : 70 } catch { return 70 } })())
 let playbackVersion = 0
 const sourceUrl = ref('')
 const sourceExpiry = ref(0)
