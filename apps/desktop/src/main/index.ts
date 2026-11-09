@@ -1,11 +1,13 @@
 import { join } from 'node:path'
+import { readFile, writeFile } from 'node:fs/promises'
 import { pathToFileURL } from 'node:url'
-import { app, BrowserWindow, ipcMain, nativeTheme, protocol, session, shell, type IpcMainInvokeEvent } from 'electron'
+import { app, BrowserWindow, dialog, ipcMain, nativeTheme, protocol, session, shell, type IpcMainInvokeEvent } from 'electron'
 import type { ProviderId, TrackRef, TrackResult, TrackPage, PlaylistPage } from '../shared/contracts.js'
 import { Providers } from './providers.js'
 import { QrLogins } from './login.js'
 import { MediaStreams } from './media.js'
 import { LocalFavorites } from './local-favorites.js'
+import { PlayHistory } from './play-history.js'
 import { message, object } from './api/transport.js'
 import { initializeLogger, logEvent, logsDirectory } from './logger.js'
 import { closeQqMusicService } from './api/qqmusic-service.js'
@@ -16,6 +18,7 @@ let providers: Providers
 let logins: QrLogins
 let media: MediaStreams
 let localFavorites: LocalFavorites
+let playHistory: PlayHistory
 const rendererPath = join(__dirname, '../renderer/index.html')
 const titleBarHeight = 42
 function titleBarOverlay() {
@@ -145,6 +148,31 @@ function registerIpc() {
   })
   for (const kind of ['search', 'playlists'] as const) handle(`music:${kind}`, input => pages(input, kind))
   handle('music:local-favorites', () => localFavorites.list())
+  handle('music:history', () => playHistory.list())
+  handle('music:record-play', input => playHistory.record(trackSnapshot(input)))
+  handle('music:clear-history', () => playHistory.clear())
+  handle('music:export-favorites', async () => {
+    if (!mainWindow) throw new Error('应用窗口不可用')
+    const result = await dialog.showSaveDialog(mainWindow, {
+      title: '导出本地喜欢', defaultPath: 'wavemusic-favorites.json',
+      filters: [{ name: 'JSON 备份', extensions: ['json'] }]
+    })
+    if (result.canceled || !result.filePath) return { cancelled: true }
+    await writeFile(result.filePath, await localFavorites.exportBackup(), { encoding: 'utf8', flag: 'w' })
+    return { cancelled: false, path: result.filePath }
+  })
+  handle('music:import-favorites', async () => {
+    if (!mainWindow) throw new Error('应用窗口不可用')
+    const result = await dialog.showOpenDialog(mainWindow, {
+      title: '导入本地喜欢备份', properties: ['openFile'],
+      filters: [{ name: 'JSON 备份', extensions: ['json'] }]
+    })
+    if (result.canceled || !result.filePaths[0]) return { cancelled: true }
+    const { stat } = await import('node:fs/promises')
+    if ((await stat(result.filePaths[0])).size > 8 * 1024 * 1024) throw new Error('备份文件过大')
+    const content = await readFile(result.filePaths[0], 'utf8')
+    return { cancelled: false, ...await localFavorites.importBackup(content) }
+  })
   handle('music:local-favorite', input => {
     if (typeof input?.liked !== 'boolean') throw new Error('无效的本地喜欢状态')
     return localFavorites.set(trackSnapshot(input?.track), input.liked)
@@ -202,6 +230,7 @@ app.whenReady().then(async () => {
   session.defaultSession.setPermissionCheckHandler(() => false)
   providers = new Providers()
   localFavorites = new LocalFavorites(trackSnapshot)
+  playHistory = new PlayHistory(trackSnapshot)
   media = new MediaStreams()
   media.register()
   logins = new QrLogins(view => emit('login:changed', view), () => {
