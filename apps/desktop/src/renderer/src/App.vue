@@ -391,7 +391,7 @@ const queueOpen = ref(false)
 const currentTime = ref(0)
 const mediaDuration = ref(0)
 const bufferedRanges = ref<{ start: number; end: number }[]>([])
-const volume = ref((() => { try { const saved = Number(localStorage.getItem('wave-volume')); return Number.isFinite(saved) && saved >= 0 && saved <= 100 ? saved : 70 } catch { return 70 } })())
+const volume = ref((() => { try { const value = localStorage.getItem('wave-volume'); const saved = value === null ? 70 : Number(value); return Number.isFinite(saved) && saved >= 0 && saved <= 100 ? saved : 70 } catch { return 70 } })())
 let playbackVersion = 0
 const sourceUrl = ref('')
 const sourceExpiry = ref(0)
